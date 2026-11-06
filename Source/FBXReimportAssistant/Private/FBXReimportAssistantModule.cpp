@@ -13,8 +13,14 @@
 #include "Widgets/SWindow.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SSpinBox.h"
+#include "Widgets/Input/SButton.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Layout/SScrollBox.h"
+
+// =====================================
+// Transaction
+// =====================================
+#include "ScopedTransaction.h"
 
 // =====================================
 // Content Browser
@@ -56,6 +62,11 @@ struct FFBXImportSettingsDraft
     FRotator Rotation = FRotator::ZeroRotator;
 
     float UniformScale = 1.0f;
+
+    // 適用対象
+    TWeakObjectPtr<UStaticMesh> TargetMesh;
+
+    TWeakObjectPtr<UInterchangeAssetImportData> ImportData;
 };
 
 
@@ -114,11 +125,11 @@ private:
             "OpenFBXReimportAssistant",
 
             FText::FromString(
-                "FBX Reimport Assistant"
+                TEXT("FBX Reimport Assistant")
             ),
 
             FText::FromString(
-                "Open FBX Reimport Assistant Window"
+                TEXT("Open FBX Reimport Assistant Window")
             ),
 
             FSlateIcon(),
@@ -145,7 +156,6 @@ private:
     {
         return SNew(SVerticalBox)
 
-            // Label
             + SVerticalBox::Slot()
             .AutoHeight()
             .Padding(2.0f)
@@ -154,7 +164,6 @@ private:
                 .Text(Label)
             ]
 
-            // Numeric Input
             + SVerticalBox::Slot()
             .AutoHeight()
             .Padding(2.0f)
@@ -176,6 +185,242 @@ private:
                     }
                 )
             ];
+    }
+
+
+    // =====================================
+    // Apply Import Settings
+    // =====================================
+
+    bool ApplyDraftSettings(
+        const TSharedPtr<FFBXImportSettingsDraft>& Draft,
+        FString& OutMessage
+    )
+    {
+        // ---------------------------------
+        // ① 一時データの確認
+        // ---------------------------------
+
+        if (!Draft.IsValid())
+        {
+            OutMessage = TEXT(
+                "編集データが存在しません。"
+            );
+
+            return false;
+        }
+
+
+        // ---------------------------------
+        // ② 適用対象を取得
+        // ---------------------------------
+
+        UStaticMesh* TargetMesh =
+            Draft->TargetMesh.Get();
+
+        UInterchangeAssetImportData* ImportData =
+            Draft->ImportData.Get();
+
+        if (!IsValid(TargetMesh) || !IsValid(ImportData))
+        {
+            OutMessage = TEXT(
+                "適用対象のアセットが無効です。"
+            );
+
+            return false;
+        }
+
+
+        // ---------------------------------
+        // ③ ImportDataの一致確認
+        // ---------------------------------
+
+        if (TargetMesh->AssetImportData.Get() != ImportData)
+        {
+            OutMessage = TEXT(
+                "インポートデータが変更されています。"
+                "ツールを開き直してください。"
+            );
+
+            return false;
+        }
+
+
+        // ---------------------------------
+        // ④ 入力値の検証
+        // ---------------------------------
+
+        const bool bTranslationValid =
+            FMath::IsFinite(Draft->Translation.X) &&
+            FMath::IsFinite(Draft->Translation.Y) &&
+            FMath::IsFinite(Draft->Translation.Z);
+
+        const bool bRotationValid =
+            FMath::IsFinite(Draft->Rotation.Roll) &&
+            FMath::IsFinite(Draft->Rotation.Pitch) &&
+            FMath::IsFinite(Draft->Rotation.Yaw);
+
+        const bool bScaleValid =
+            FMath::IsFinite(Draft->UniformScale) &&
+            !FMath::IsNearlyZero(Draft->UniformScale);
+
+        if (!bTranslationValid || !bRotationValid || !bScaleValid)
+        {
+            OutMessage = TEXT(
+                "入力値が不正です。"
+                "数値を確認してください。"
+                "Uniform Scaleには0を指定できません。"
+            );
+
+            return false;
+        }
+
+
+        // ---------------------------------
+        // ⑤ Pipelineを取得
+        // ---------------------------------
+
+        TArray<UObject*> Pipelines =
+            ImportData->GetPipelines();
+
+        UInterchangeGenericAssetsPipeline* TargetPipeline =
+            nullptr;
+
+
+        // ---------------------------------
+        // ⑥ Generic Assets Pipelineを検索
+        // ---------------------------------
+
+        for (UObject* PipelineObject : Pipelines)
+        {
+            if (PipelineObject == nullptr)
+            {
+                continue;
+            }
+
+            UInterchangeGenericAssetsPipeline* GenericPipeline =
+                Cast<UInterchangeGenericAssetsPipeline>(
+                    PipelineObject
+                );
+
+            if (GenericPipeline != nullptr)
+            {
+                TargetPipeline = GenericPipeline;
+                break;
+            }
+        }
+
+
+        if (TargetPipeline == nullptr)
+        {
+            OutMessage = TEXT(
+                "Generic Assets Pipelineが見つかりません。"
+            );
+
+            return false;
+        }
+
+
+        // ---------------------------------
+        // ⑦ Undo用トランザクション
+        // ---------------------------------
+
+        FScopedTransaction Transaction(
+            FText::FromString(
+                TEXT("FBX Reimport Assistant: Apply Import Settings")
+            ),
+            true
+        );
+        
+        // Undo対象のTransactionalフラグを設定
+        TargetMesh->SetFlags(RF_Transactional);
+        ImportData->SetFlags(RF_Transactional);
+        TargetPipeline->SetFlags(RF_Transactional);
+        
+        // 変更前の状態をトランザクションに記録
+        const bool bMeshModified = TargetMesh->Modify();
+        
+        const bool bImportDataModified = ImportData->Modify();
+        
+        const bool bPipelineModified = TargetPipeline->Modify();
+        
+        // Undo対象への登録確認
+        if (!bMeshModified || !bImportDataModified ||!bPipelineModified)
+        {
+            Transaction.Cancel();
+            
+            OutMessage = FString::Printf(
+                TEXT(
+                    "Undo対象の登録に失敗しました。\n"
+                    "Mesh: %s\n"
+                    "ImportData: %s\n"
+                    "Pipeline: %s"),
+                    
+                    bMeshModified ? TEXT("OK") : TEXT("NG"),
+                    bImportDataModified ? TEXT("OK") : TEXT("NG"),
+                    bPipelineModified ? TEXT("OK") : TEXT("NG")
+                    );
+            
+            return false;
+        }
+
+        // ---------------------------------
+        // ⑧ Pipelineの設定値を変更
+        // ---------------------------------
+
+        TargetPipeline->ImportOffsetTranslation =
+            Draft->Translation;
+
+        TargetPipeline->ImportOffsetRotation =
+            Draft->Rotation;
+
+        TargetPipeline->ImportOffsetUniformScale =
+            Draft->UniformScale;
+
+
+        // ---------------------------------
+        // ⑨ PipelineをImportDataに再設定
+        // ---------------------------------
+
+        ImportData->SetPipelines(Pipelines);
+
+
+        // ---------------------------------
+        // ⑩ アセットを変更済みにする
+        // ---------------------------------
+
+        TargetMesh->MarkPackageDirty();
+
+
+        // ---------------------------------
+        // ⑪ 結果を返す
+        // ---------------------------------
+
+        OutMessage = FString::Printf(
+            TEXT(
+                "設定を適用しました。\n"
+                "アセット: %s\n\n"
+                "Translation: %.2f / %.2f / %.2f\n"
+                "Rotation: %.2f / %.2f / %.2f\n"
+                "Uniform Scale: %.2f\n\n"
+                "アセットを保存してください。"
+                "まだ再インポートは実行していません。"
+            ),
+
+            *Draft->AssetName,
+
+            Draft->Translation.X,
+            Draft->Translation.Y,
+            Draft->Translation.Z,
+
+            Draft->Rotation.Roll,
+            Draft->Rotation.Pitch,
+            Draft->Rotation.Yaw,
+
+            Draft->UniformScale
+        );
+
+        return true;
     }
 
 
@@ -202,7 +447,7 @@ private:
 
 
         // ---------------------------------
-        // ② Static Meshと設定データを取得
+        // ② アセット情報
         // ---------------------------------
 
         int32 StaticMeshCount = 0;
@@ -212,6 +457,11 @@ private:
         FString DiagnosticText;
 
         TSharedPtr<FFBXImportSettingsDraft> Draft;
+
+        TSharedPtr<FString> ApplyStatus =
+            MakeShared<FString>(
+                TEXT("まだ設定は適用されていません。")
+            );
 
 
         for (const FAssetData& AssetData : SelectedAssets)
@@ -229,7 +479,7 @@ private:
 
             ++StaticMeshCount;
 
-            // 今回はStatic Meshを1つだけ編集対象にする
+            // 複数選択時は今回の学習では処理しない
             if (StaticMeshCount > 1)
             {
                 continue;
@@ -237,7 +487,7 @@ private:
 
 
             // ---------------------------------
-            // ③ Import Dataを取得
+            // ③ ImportDataを取得
             // ---------------------------------
 
             UAssetImportData* ImportData =
@@ -245,8 +495,9 @@ private:
 
             if (ImportData == nullptr)
             {
-                DiagnosticText =
-                    TEXT("インポートデータが存在しません。");
+                DiagnosticText = TEXT(
+                    "インポートデータが存在しません。"
+                );
 
                 continue;
             }
@@ -263,13 +514,9 @@ private:
 
             if (InterchangeImportData == nullptr)
             {
-                DiagnosticText =
-                    FString::Printf(
-                        TEXT("Interchange形式ではありません。\n")
-                        TEXT("実際の型: %s"),
-
-                        *ImportData->GetClass()->GetName()
-                    );
+                DiagnosticText = TEXT(
+                    "Interchange形式ではありません。"
+                );
 
                 continue;
             }
@@ -304,7 +551,7 @@ private:
 
 
                 // ---------------------------------
-                // ⑥ 一時データに設定値をコピー
+                // ⑥ 一時データを作成
                 // ---------------------------------
 
                 Draft =
@@ -325,6 +572,10 @@ private:
                 Draft->UniformScale =
                     GenericPipeline->ImportOffsetUniformScale;
 
+                Draft->TargetMesh = StaticMesh;
+
+                Draft->ImportData = InterchangeImportData;
+
                 bFoundPipeline = true;
 
                 break;
@@ -333,19 +584,15 @@ private:
 
             if (!bFoundPipeline)
             {
-                DiagnosticText =
-                    FString::Printf(
-                        TEXT("Generic Assets Pipelineが見つかりません。\n")
-                        TEXT("保存Pipeline数: %d"),
-
-                        Pipelines.Num()
-                    );
+                DiagnosticText = TEXT(
+                    "Generic Assets Pipelineが見つかりません。"
+                );
             }
         }
 
 
         // ---------------------------------
-        // ⑦ ウィンドウのルートレイアウトを作成
+        // ⑦ UIレイアウトを作成
         // ---------------------------------
 
         TSharedRef<SVerticalBox> Content =
@@ -365,7 +612,7 @@ private:
                 SNew(STextBlock)
                 .Text(
                     FText::FromString(
-                        "コンテンツブラウザでStatic Meshを選択してください。"
+                        TEXT("コンテンツブラウザでStatic Meshを選択してください。")
                     )
                 )
             ];
@@ -379,7 +626,7 @@ private:
                 SNew(STextBlock)
                 .Text(
                     FText::FromString(
-                        "Static Meshが選択されていません。"
+                        TEXT("Static Meshが選択されていません。")
                     )
                 )
             ];
@@ -393,7 +640,7 @@ private:
                 SNew(STextBlock)
                 .Text(
                     FText::FromString(
-                        "今回の学習ではStatic Meshを1つだけ選択してください。"
+                        TEXT("今回の学習ではStatic Meshを1つだけ選択してください。")
                     )
                 )
             ];
@@ -417,7 +664,7 @@ private:
         else
         {
             // ---------------------------------
-            // ⑨ 対象アセット情報
+            // ⑨ 対象アセット
             // ---------------------------------
 
             Content->AddSlot()
@@ -434,6 +681,7 @@ private:
                     )
                 )
             ];
+
 
             Content->AddSlot()
             .AutoHeight()
@@ -463,7 +711,7 @@ private:
                 SNew(STextBlock)
                 .Text(
                     FText::FromString(
-                        "Translation Offset"
+                        TEXT("Translation Offset")
                     )
                 )
             ];
@@ -473,13 +721,12 @@ private:
                 SNew(SHorizontalBox);
 
 
-            // X
             TranslationRow->AddSlot()
             .FillWidth(1.0f)
             .Padding(4.0f)
             [
                 MakeNumericField(
-                    FText::FromString("X"),
+                    FText::FromString(TEXT("X")),
                     Draft->Translation.X,
 
                     [Draft](float NewValue)
@@ -490,13 +737,12 @@ private:
             ];
 
 
-            // Y
             TranslationRow->AddSlot()
             .FillWidth(1.0f)
             .Padding(4.0f)
             [
                 MakeNumericField(
-                    FText::FromString("Y"),
+                    FText::FromString(TEXT("Y")),
                     Draft->Translation.Y,
 
                     [Draft](float NewValue)
@@ -507,13 +753,12 @@ private:
             ];
 
 
-            // Z
             TranslationRow->AddSlot()
             .FillWidth(1.0f)
             .Padding(4.0f)
             [
                 MakeNumericField(
-                    FText::FromString("Z"),
+                    FText::FromString(TEXT("Z")),
                     Draft->Translation.Z,
 
                     [Draft](float NewValue)
@@ -542,7 +787,7 @@ private:
                 SNew(STextBlock)
                 .Text(
                     FText::FromString(
-                        "Rotation Offset"
+                        TEXT("Rotation Offset")
                     )
                 )
             ];
@@ -552,13 +797,12 @@ private:
                 SNew(SHorizontalBox);
 
 
-            // Roll
             RotationRow->AddSlot()
             .FillWidth(1.0f)
             .Padding(4.0f)
             [
                 MakeNumericField(
-                    FText::FromString("Roll"),
+                    FText::FromString(TEXT("Roll")),
                     Draft->Rotation.Roll,
 
                     [Draft](float NewValue)
@@ -569,13 +813,12 @@ private:
             ];
 
 
-            // Pitch
             RotationRow->AddSlot()
             .FillWidth(1.0f)
             .Padding(4.0f)
             [
                 MakeNumericField(
-                    FText::FromString("Pitch"),
+                    FText::FromString(TEXT("Pitch")),
                     Draft->Rotation.Pitch,
 
                     [Draft](float NewValue)
@@ -586,13 +829,12 @@ private:
             ];
 
 
-            // Yaw
             RotationRow->AddSlot()
             .FillWidth(1.0f)
             .Padding(4.0f)
             [
                 MakeNumericField(
-                    FText::FromString("Yaw"),
+                    FText::FromString(TEXT("Yaw")),
                     Draft->Rotation.Yaw,
 
                     [Draft](float NewValue)
@@ -621,7 +863,7 @@ private:
                 SNew(STextBlock)
                 .Text(
                     FText::FromString(
-                        "Uniform Scale"
+                        TEXT("Uniform Scale")
                     )
                 )
             ];
@@ -632,7 +874,7 @@ private:
             .Padding(4.0f)
             [
                 MakeNumericField(
-                    FText::FromString("Scale"),
+                    FText::FromString(TEXT("Scale")),
                     Draft->UniformScale,
 
                     [Draft](float NewValue)
@@ -644,7 +886,7 @@ private:
 
 
             // ---------------------------------
-            // ⑬ 入力値のプレビュー
+            // ⑬ 一時データのプレビュー
             // ---------------------------------
 
             Content->AddSlot()
@@ -677,11 +919,68 @@ private:
                 )
                 .AutoWrapText(true)
             ];
+
+
+            // ---------------------------------
+            // ⑭ 設定適用ボタン
+            // ---------------------------------
+
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(8.0f)
+            [
+                SNew(SButton)
+
+                .Text(
+                    FText::FromString(
+                        TEXT("設定を適用")
+                    )
+                )
+
+                .OnClicked_Lambda(
+                    [this, Draft, ApplyStatus]()
+                    {
+                        FString ResultMessage;
+
+                        ApplyDraftSettings(
+                            Draft,
+                            ResultMessage
+                        );
+
+                        *ApplyStatus = ResultMessage;
+
+                        return FReply::Handled();
+                    }
+                )
+            ];
+
+
+            // ---------------------------------
+            // ⑮ 適用結果
+            // ---------------------------------
+
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(8.0f)
+            [
+                SNew(STextBlock)
+
+                .Text_Lambda(
+                    [ApplyStatus]()
+                    {
+                        return FText::FromString(
+                            *ApplyStatus
+                        );
+                    }
+                )
+
+                .AutoWrapText(true)
+            ];
         }
 
 
         // ---------------------------------
-        // ⑭ 注意書き
+        // ⑯ 注意書き
         // ---------------------------------
 
         Content->AddSlot()
@@ -691,8 +990,10 @@ private:
             SNew(STextBlock)
             .Text(
                 FText::FromString(
-                    TEXT("注意: 現在の入力値は一時データです。")
-                    TEXT("元のアセット設定にはまだ反映されません。")
+                    TEXT(
+                        "注意: 設定を適用してもメッシュ形状は変わりません。"
+                        "実際の反映にはFBXの再インポートが必要です。"
+                    )
                 )
             )
             .AutoWrapText(true)
@@ -700,22 +1001,21 @@ private:
 
 
         // ---------------------------------
-        // ⑮ Slate Window
+        // ⑰ ウィンドウ生成
         // ---------------------------------
 
         TSharedRef<SWindow> Window =
             SNew(SWindow)
             .Title(
                 FText::FromString(
-                    "FBX Reimport Assistant"
+                    TEXT("FBX Reimport Assistant")
                 )
             )
             .ClientSize(
-                FVector2D(650.0f, 650.0f)
+                FVector2D(650.0f, 700.0f)
             );
 
 
-        // ScrollBoxにルートレイアウトを設定
         Window->SetContent(
             SNew(SScrollBox)
             + SScrollBox::Slot()
@@ -725,7 +1025,6 @@ private:
         );
 
 
-        // ウィンドウ表示
         FSlateApplication::Get().AddWindow(Window);
     }
 
