@@ -12,6 +12,6 @@ DerivedDataCache/
 *.VC.db
 *.VC.VC.opendb
 
-# OS generated files
+# OS
 .DS_Store
 Thumbs.db
