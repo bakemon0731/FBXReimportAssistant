@@ -1,4 +1,4 @@
-
+﻿
 #include "Modules/ModuleManager.h"
 
 // =====================================
@@ -12,6 +12,9 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/SWindow.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Widgets/Input/SSpinBox.h"
+#include "Widgets/SBoxPanel.h"
+#include "Widgets/Layout/SScrollBox.h"
 
 // =====================================
 // Content Browser
@@ -35,6 +38,25 @@
 // =====================================
 #include "InterchangeAssetImportData.h"
 #include "InterchangeGenericAssetsPipeline.h"
+
+
+// =====================================
+// Import Settings Draft
+// UI編集用の一時データ
+// =====================================
+
+struct FFBXImportSettingsDraft
+{
+    FString AssetName;
+
+    FString SourceFilePath;
+
+    FVector Translation = FVector::ZeroVector;
+
+    FRotator Rotation = FRotator::ZeroRotator;
+
+    float UniformScale = 1.0f;
+};
 
 
 class FFBXReimportAssistantModule : public IModuleInterface
@@ -112,6 +134,52 @@ private:
 
 
     // =====================================
+    // Create Numeric Input Field
+    // =====================================
+
+    static TSharedRef<SVerticalBox> MakeNumericField(
+        const FText& Label,
+        float InitialValue,
+        TFunction<void(float)> OnValueChanged
+    )
+    {
+        return SNew(SVerticalBox)
+
+            // Label
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(2.0f)
+            [
+                SNew(STextBlock)
+                .Text(Label)
+            ]
+
+            // Numeric Input
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(2.0f)
+            [
+                SNew(SSpinBox<float>)
+
+                .Value(InitialValue)
+
+                .Delta(0.1f)
+
+                .EnableWheel(false)
+
+                .MinDesiredWidth(100.0f)
+
+                .OnValueChanged_Lambda(
+                    [OnValueChanged](float NewValue)
+                    {
+                        OnValueChanged(NewValue);
+                    }
+                )
+            ];
+    }
+
+
+    // =====================================
     // Open Main Window
     // =====================================
 
@@ -134,20 +202,22 @@ private:
 
 
         // ---------------------------------
-        // ② Static Meshを判定・取得
+        // ② Static Meshと設定データを取得
         // ---------------------------------
 
         int32 StaticMeshCount = 0;
+
         int32 OtherAssetCount = 0;
 
-        FString MeshDetails;
+        FString DiagnosticText;
+
+        TSharedPtr<FFBXImportSettingsDraft> Draft;
+
 
         for (const FAssetData& AssetData : SelectedAssets)
         {
-            // アセット本体を取得
             UObject* Asset = AssetData.GetAsset();
 
-            // Static Meshかどうか判定
             UStaticMesh* StaticMesh =
                 Cast<UStaticMesh>(Asset);
 
@@ -157,18 +227,17 @@ private:
                 continue;
             }
 
-            // Static Meshとして取得成功
             ++StaticMeshCount;
 
-            MeshDetails += FString::Printf(
-                TEXT("========================================\n")
-                TEXT("アセット名: %s\n"),
-                *StaticMesh->GetName()
-            );
+            // 今回はStatic Meshを1つだけ編集対象にする
+            if (StaticMeshCount > 1)
+            {
+                continue;
+            }
 
 
             // ---------------------------------
-            // ③ インポートデータを取得
+            // ③ Import Dataを取得
             // ---------------------------------
 
             UAssetImportData* ImportData =
@@ -176,81 +245,45 @@ private:
 
             if (ImportData == nullptr)
             {
-                MeshDetails += TEXT(
-                    "インポートデータ: 存在しません\n\n"
-                );
+                DiagnosticText =
+                    TEXT("インポートデータが存在しません。");
 
                 continue;
             }
 
 
-            // インポートデータの型を表示
-            FString ImportDataClassName =
-                ImportData->GetClass()->GetName();
-
-            MeshDetails += FString::Printf(
-                TEXT("インポートデータ型: %s\n"),
-                *ImportDataClassName
-            );
-
-
             // ---------------------------------
-            // ④ ソースファイルパスを取得
-            // ---------------------------------
-
-            FString SourceFilePath =
-                ImportData->GetFirstFilename();
-
-            if (SourceFilePath.IsEmpty())
-            {
-                MeshDetails += TEXT(
-                    "ソースファイル: 登録されていません\n"
-                );
-            }
-            else
-            {
-                MeshDetails += FString::Printf(
-                    TEXT("ソースファイル: %s\n"),
-                    *SourceFilePath
-                );
-            }
-
-
-            // ---------------------------------
-            // ⑤ Interchange Import Dataを取得
+            // ④ Interchange Import Dataを取得
             // ---------------------------------
 
             UInterchangeAssetImportData* InterchangeImportData =
-                Cast<UInterchangeAssetImportData>(ImportData);
+                Cast<UInterchangeAssetImportData>(
+                    ImportData
+                );
 
             if (InterchangeImportData == nullptr)
             {
-                MeshDetails += TEXT(
-                    "Interchange Import Dataではありません。\n\n"
-                );
+                DiagnosticText =
+                    FString::Printf(
+                        TEXT("Interchange形式ではありません。\n")
+                        TEXT("実際の型: %s"),
+
+                        *ImportData->GetClass()->GetName()
+                    );
 
                 continue;
             }
 
 
             // ---------------------------------
-            // ⑥ 保存されているPipelineを取得
+            // ⑤ Pipelineを取得
             // ---------------------------------
 
             TArray<UObject*> Pipelines =
                 InterchangeImportData->GetPipelines();
 
-            MeshDetails += FString::Printf(
-                TEXT("保存Pipeline数: %d\n"),
-                Pipelines.Num()
-            );
+            bool bFoundPipeline = false;
 
-            bool bFoundGenericAssetsPipeline = false;
-
-
-            // ---------------------------------
-            // ⑦ Pipelineを順番に確認
-            // ---------------------------------
 
             for (UObject* PipelineObject : Pipelines)
             {
@@ -259,14 +292,6 @@ private:
                     continue;
                 }
 
-                // Pipelineのクラス名を表示
-                MeshDetails += FString::Printf(
-                    TEXT("Pipeline型: %s\n"),
-                    *PipelineObject->GetClass()->GetName()
-                );
-
-
-                // Generic Assets Pipelineに変換
                 UInterchangeGenericAssetsPipeline* GenericPipeline =
                     Cast<UInterchangeGenericAssetsPipeline>(
                         PipelineObject
@@ -277,95 +302,405 @@ private:
                     continue;
                 }
 
-                bFoundGenericAssetsPipeline = true;
-
 
                 // ---------------------------------
-                // ⑧ Interchangeの設定値を取得
+                // ⑥ 一時データに設定値をコピー
                 // ---------------------------------
 
-                FVector Translation =
+                Draft =
+                    MakeShared<FFBXImportSettingsDraft>();
+
+                Draft->AssetName =
+                    StaticMesh->GetName();
+
+                Draft->SourceFilePath =
+                    ImportData->GetFirstFilename();
+
+                Draft->Translation =
                     GenericPipeline->ImportOffsetTranslation;
 
-                FRotator Rotation =
+                Draft->Rotation =
                     GenericPipeline->ImportOffsetRotation;
 
-                float UniformScale =
+                Draft->UniformScale =
                     GenericPipeline->ImportOffsetUniformScale;
 
+                bFoundPipeline = true;
 
-                // ---------------------------------
-                // ⑨ 設定値を文字列に変換
-                // ---------------------------------
-
-                MeshDetails += FString::Printf(
-                    TEXT("\n--- インポート設定 ---\n")
-                    TEXT("Translation: X=%.2f Y=%.2f Z=%.2f\n")
-                    TEXT("Rotation: Roll=%.2f Pitch=%.2f Yaw=%.2f\n")
-                    TEXT("Uniform Scale: %.2f\n"),
-
-                    Translation.X,
-                    Translation.Y,
-                    Translation.Z,
-
-                    Rotation.Roll,
-                    Rotation.Pitch,
-                    Rotation.Yaw,
-
-                    UniformScale
-                );
+                break;
             }
 
 
-            // ---------------------------------
-            // ⑩ Generic Assets Pipelineがない場合
-            // ---------------------------------
-
-            if (!bFoundGenericAssetsPipeline)
+            if (!bFoundPipeline)
             {
-                MeshDetails += TEXT(
-                    "Generic Assets Pipelineを取得できません。\n"
-                );
-            }
+                DiagnosticText =
+                    FString::Printf(
+                        TEXT("Generic Assets Pipelineが見つかりません。\n")
+                        TEXT("保存Pipeline数: %d"),
 
-            MeshDetails += TEXT("\n");
+                        Pipelines.Num()
+                    );
+            }
         }
 
 
         // ---------------------------------
-        // ⑪ 表示内容を作成
+        // ⑦ ウィンドウのルートレイアウトを作成
         // ---------------------------------
 
-        FString WindowText = FString::Printf(
-            TEXT("選択アセット数: %d\n")
-            TEXT("Static Mesh数: %d\n")
-            TEXT("その他のアセット数: %d\n\n"),
+        TSharedRef<SVerticalBox> Content =
+            SNew(SVerticalBox);
 
-            SelectedAssets.Num(),
-            StaticMeshCount,
-            OtherAssetCount
-        );
+
+        // ---------------------------------
+        // ⑧ 選択状態を確認
+        // ---------------------------------
 
         if (SelectedAssets.Num() == 0)
         {
-            WindowText += TEXT(
-                "コンテンツブラウザでアセットを選択してください。"
-            );
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(10.0f)
+            [
+                SNew(STextBlock)
+                .Text(
+                    FText::FromString(
+                        "コンテンツブラウザでStatic Meshを選択してください。"
+                    )
+                )
+            ];
         }
         else if (StaticMeshCount == 0)
         {
-            WindowText += TEXT(
-                "Static Meshが選択されていません。"
-            );
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(10.0f)
+            [
+                SNew(STextBlock)
+                .Text(
+                    FText::FromString(
+                        "Static Meshが選択されていません。"
+                    )
+                )
+            ];
+        }
+        else if (StaticMeshCount > 1)
+        {
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(10.0f)
+            [
+                SNew(STextBlock)
+                .Text(
+                    FText::FromString(
+                        "今回の学習ではStatic Meshを1つだけ選択してください。"
+                    )
+                )
+            ];
+        }
+        else if (!Draft.IsValid())
+        {
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(10.0f)
+            [
+                SNew(STextBlock)
+                .Text(
+                    FText::FromString(
+                        DiagnosticText.IsEmpty()
+                        ? TEXT("インポート設定を取得できません。")
+                        : DiagnosticText
+                    )
+                )
+            ];
         }
         else
         {
-            WindowText += MeshDetails;
+            // ---------------------------------
+            // ⑨ 対象アセット情報
+            // ---------------------------------
+
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(8.0f)
+            [
+                SNew(STextBlock)
+                .Text(
+                    FText::FromString(
+                        FString::Printf(
+                            TEXT("対象アセット: %s"),
+                            *Draft->AssetName
+                        )
+                    )
+                )
+            ];
+
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(8.0f)
+            [
+                SNew(STextBlock)
+                .Text(
+                    FText::FromString(
+                        FString::Printf(
+                            TEXT("FBXソース: %s"),
+                            *Draft->SourceFilePath
+                        )
+                    )
+                )
+                .AutoWrapText(true)
+            ];
+
+
+            // ---------------------------------
+            // ⑩ Translation Offset
+            // ---------------------------------
+
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(8.0f)
+            [
+                SNew(STextBlock)
+                .Text(
+                    FText::FromString(
+                        "Translation Offset"
+                    )
+                )
+            ];
+
+
+            TSharedRef<SHorizontalBox> TranslationRow =
+                SNew(SHorizontalBox);
+
+
+            // X
+            TranslationRow->AddSlot()
+            .FillWidth(1.0f)
+            .Padding(4.0f)
+            [
+                MakeNumericField(
+                    FText::FromString("X"),
+                    Draft->Translation.X,
+
+                    [Draft](float NewValue)
+                    {
+                        Draft->Translation.X = NewValue;
+                    }
+                )
+            ];
+
+
+            // Y
+            TranslationRow->AddSlot()
+            .FillWidth(1.0f)
+            .Padding(4.0f)
+            [
+                MakeNumericField(
+                    FText::FromString("Y"),
+                    Draft->Translation.Y,
+
+                    [Draft](float NewValue)
+                    {
+                        Draft->Translation.Y = NewValue;
+                    }
+                )
+            ];
+
+
+            // Z
+            TranslationRow->AddSlot()
+            .FillWidth(1.0f)
+            .Padding(4.0f)
+            [
+                MakeNumericField(
+                    FText::FromString("Z"),
+                    Draft->Translation.Z,
+
+                    [Draft](float NewValue)
+                    {
+                        Draft->Translation.Z = NewValue;
+                    }
+                )
+            ];
+
+
+            Content->AddSlot()
+            .AutoHeight()
+            [
+                TranslationRow
+            ];
+
+
+            // ---------------------------------
+            // ⑪ Rotation Offset
+            // ---------------------------------
+
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(8.0f)
+            [
+                SNew(STextBlock)
+                .Text(
+                    FText::FromString(
+                        "Rotation Offset"
+                    )
+                )
+            ];
+
+
+            TSharedRef<SHorizontalBox> RotationRow =
+                SNew(SHorizontalBox);
+
+
+            // Roll
+            RotationRow->AddSlot()
+            .FillWidth(1.0f)
+            .Padding(4.0f)
+            [
+                MakeNumericField(
+                    FText::FromString("Roll"),
+                    Draft->Rotation.Roll,
+
+                    [Draft](float NewValue)
+                    {
+                        Draft->Rotation.Roll = NewValue;
+                    }
+                )
+            ];
+
+
+            // Pitch
+            RotationRow->AddSlot()
+            .FillWidth(1.0f)
+            .Padding(4.0f)
+            [
+                MakeNumericField(
+                    FText::FromString("Pitch"),
+                    Draft->Rotation.Pitch,
+
+                    [Draft](float NewValue)
+                    {
+                        Draft->Rotation.Pitch = NewValue;
+                    }
+                )
+            ];
+
+
+            // Yaw
+            RotationRow->AddSlot()
+            .FillWidth(1.0f)
+            .Padding(4.0f)
+            [
+                MakeNumericField(
+                    FText::FromString("Yaw"),
+                    Draft->Rotation.Yaw,
+
+                    [Draft](float NewValue)
+                    {
+                        Draft->Rotation.Yaw = NewValue;
+                    }
+                )
+            ];
+
+
+            Content->AddSlot()
+            .AutoHeight()
+            [
+                RotationRow
+            ];
+
+
+            // ---------------------------------
+            // ⑫ Uniform Scale
+            // ---------------------------------
+
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(8.0f)
+            [
+                SNew(STextBlock)
+                .Text(
+                    FText::FromString(
+                        "Uniform Scale"
+                    )
+                )
+            ];
+
+
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(4.0f)
+            [
+                MakeNumericField(
+                    FText::FromString("Scale"),
+                    Draft->UniformScale,
+
+                    [Draft](float NewValue)
+                    {
+                        Draft->UniformScale = NewValue;
+                    }
+                )
+            ];
+
+
+            // ---------------------------------
+            // ⑬ 入力値のプレビュー
+            // ---------------------------------
+
+            Content->AddSlot()
+            .AutoHeight()
+            .Padding(8.0f)
+            [
+                SNew(STextBlock)
+                .Text_Lambda(
+                    [Draft]()
+                    {
+                        return FText::FromString(
+                            FString::Printf(
+                                TEXT("現在の一時データ\n")
+                                TEXT("Translation: %.2f / %.2f / %.2f\n")
+                                TEXT("Rotation: %.2f / %.2f / %.2f\n")
+                                TEXT("Uniform Scale: %.2f"),
+
+                                Draft->Translation.X,
+                                Draft->Translation.Y,
+                                Draft->Translation.Z,
+
+                                Draft->Rotation.Roll,
+                                Draft->Rotation.Pitch,
+                                Draft->Rotation.Yaw,
+
+                                Draft->UniformScale
+                            )
+                        );
+                    }
+                )
+                .AutoWrapText(true)
+            ];
         }
 
 
         // ---------------------------------
-        // ⑫ Slateウィンドウを生成
+        // ⑭ 注意書き
+        // ---------------------------------
+
+        Content->AddSlot()
+        .AutoHeight()
+        .Padding(10.0f)
+        [
+            SNew(STextBlock)
+            .Text(
+                FText::FromString(
+                    TEXT("注意: 現在の入力値は一時データです。")
+                    TEXT("元のアセット設定にはまだ反映されません。")
+                )
+            )
+            .AutoWrapText(true)
+        ];
+
+
+        // ---------------------------------
+        // ⑮ Slate Window
         // ---------------------------------
 
         TSharedRef<SWindow> Window =
@@ -376,17 +711,21 @@ private:
                 )
             )
             .ClientSize(
-                FVector2D(750.0f, 500.0f)
+                FVector2D(650.0f, 650.0f)
             );
 
+
+        // ScrollBoxにルートレイアウトを設定
         Window->SetContent(
-            SNew(STextBlock)
-            .Text(
-                FText::FromString(WindowText)
-            )
-            .AutoWrapText(true)
+            SNew(SScrollBox)
+            + SScrollBox::Slot()
+            [
+                Content
+            ]
         );
 
+
+        // ウィンドウ表示
         FSlateApplication::Get().AddWindow(Window);
     }
 
