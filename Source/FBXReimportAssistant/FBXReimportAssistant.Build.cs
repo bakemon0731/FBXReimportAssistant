@@ -23,7 +23,8 @@ public class FBXReimportAssistant : ModuleRules
                 "UnrealEd",
                 "Slate",
                 "SlateCore",
-                "ToolMenus"
+                "ToolMenus",
+                "ContentBrowser"
             }
         );
     }
