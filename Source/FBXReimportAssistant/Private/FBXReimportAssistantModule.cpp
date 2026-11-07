@@ -92,11 +92,12 @@ void FFBXReimportAssistantModule::OpenHomeWindow()
             .Title(FText::FromString(TEXT("FBX Reimport Assistant")))
             .ClientSize(FVector2D(900.0f, 600.0f))
             .SupportsMinimize(true)
-            .SupportsMaximize(true);    
+            .SupportsMaximize(true);
         // ウィンドウクローズ時のイベントを登録
         MainWindow->GetOnWindowClosedEvent().AddRaw(
             this,
-            &FFBXReimportAssistantModule::HandleMainWindowClosed);
+            &FFBXReimportAssistantModule::HandleMainWindowClosed
+        );
             
     }
 

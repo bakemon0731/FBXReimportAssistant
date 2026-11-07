@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/StaticMesh.h"
+#include "AssetRegistry/AssetData.h"
 #include "InterchangeAssetImportData.h"
 
 // 1つのStatic Meshについて、UIで編集・表示する情報。
@@ -45,12 +46,16 @@ struct FFBXBatchOverrideSettings
 // 一括処理における、1アセット分の結果。
 struct FFBXBatchItem
 {
+    FAssetData AssetData;
     FString AssetName;
+    FString AssetObjectPath;
     FString SourceFilePath;
     FString Status;
 
     TSharedPtr<FFBXImportSettingsDraft> Draft;
     bool bEligible = false;
+    bool bSelectedForBatch = false;
+    bool bBatchOverrideAppliedToThisItem = false;
 
     // 一括設定適用前の値を保持する。
     // チェックを外した項目を元の値に戻すために使用する。

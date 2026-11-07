@@ -21,6 +21,7 @@ public class FBXReimportAssistant : ModuleRules
                 "UnrealEd",
                 "Slate",
                 "SlateCore",
+                "InputCore",
                 "ToolMenus",
                 "ContentBrowser",
                 "AssetRegistry",

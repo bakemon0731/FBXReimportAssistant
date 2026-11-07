@@ -358,6 +358,13 @@ bool FFBXReimportService::ApplyBatchOverrides(
             continue;
         }
 
+        // 選択されているアセットだけを変更する。
+        // 選択解除されたアセットは、以前の一括設定が適用済みでも一切変更しない。
+        if (!Item->bSelectedForBatch)
+        {
+            continue;
+        }
+
         if (!Item->Draft.IsValid())
         {
             OutMessage = FString::Printf(
@@ -470,8 +477,8 @@ bool FFBXReimportService::ApplyBatchOverrides(
         Record.Pipeline = Pipeline;
         Record.Pipelines = MoveTemp(Pipelines);
 
-        // チェックされた項目は共通値で上書き。
-        // チェックされていない項目は、各アセットの初期値に戻す。
+        // 選択中のアセットには、チェックされた設定だけ共通値を適用する。
+        // チェックされていない設定項目は、そのアセットの初期値に戻す。
         Record.NewTranslation = Overrides.bOverrideTranslation
             ? Overrides.Translation
             : Item->OriginalTranslation;
@@ -492,7 +499,7 @@ bool FFBXReimportService::ApplyBatchOverrides(
     }
 
     // 全対象を1つのトランザクションにまとめる。
-    FScopedTransaction Transaction(
+     FScopedTransaction Transaction(
         FText::FromString(TEXT("FBX Reimport Assistant: Apply Batch Import Settings")),
         true
     );
@@ -537,11 +544,20 @@ bool FFBXReimportService::ApplyBatchOverrides(
         Record.Item->Draft->Rotation = Record.NewRotation;
         Record.Item->Draft->UniformScale = Record.NewUniformScale;
         Record.Item->Draft->bSettingsApplied = true;
+        Record.Item->bBatchOverrideAppliedToThisItem = Overrides.HasAnyOverride();
         Record.Item->Status = TEXT("設定適用済み・再インポート待機中");
     }
 
     BatchState->bOverridesPending = false;
-    BatchState->bBatchOverridesEverApplied = Overrides.HasAnyOverride();
+    BatchState->bBatchOverridesEverApplied = false;
+    for (const TSharedPtr<FFBXBatchItem>& Item : BatchState->Items)
+    {
+        if (Item.IsValid() && Item->bBatchOverrideAppliedToThisItem)
+        {
+            BatchState->bBatchOverridesEverApplied = true;
+            break;
+        }
+    }
 
     OutMessage = FString::Printf(
         TEXT("一括設定を適用しました。\n対象アセット数: %d\n\nチェックした項目は共通値に変更し、チェックしていない項目は各アセットの元の値を維持しました。\n\nアセットを保存してから再インポートしてください。"),
@@ -721,6 +737,12 @@ void FFBXReimportService::StartBatch(
         }
 
         Item->bPendingForBatch = false;
+
+        // UIで選択されていないアセットは、通常実行・失敗再試行のどちらにも含めない。
+        if (!Item->bSelectedForBatch)
+        {
+            continue;
+        }
 
         if (!Item->bEligible || !Item->Draft.IsValid())
         {
