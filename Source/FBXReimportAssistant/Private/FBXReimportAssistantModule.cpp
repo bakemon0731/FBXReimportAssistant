@@ -1,15 +1,19 @@
 #include "FBXReimportAssistantModule.h"
 
 #include "ToolMenus.h"
+#include "Styling/AppStyle.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/SWindow.h"
 
 #include "Widgets/SFBXReimportHomeWindow.h"
 #include "Widgets/SFBXReimportWindow.h"
 #include "Widgets/SFBXBatchReimportWindow.h"
+#include "Styles/FBXReimportAssistantStyle.h"
 
 void FFBXReimportAssistantModule::StartupModule()
 {
+    FFBXReimportAssistantStyle::Initialize();
+
     UToolMenus::RegisterStartupCallback(
         FSimpleMulticastDelegate::FDelegate::CreateRaw(
             this,
@@ -24,6 +28,7 @@ void FFBXReimportAssistantModule::ShutdownModule()
     UToolMenus::UnregisterOwner(this);
 
     MainWindow.Reset();
+    FFBXReimportAssistantStyle::Shutdown();
 }
 
 void FFBXReimportAssistantModule::RegisterMenus()
@@ -43,7 +48,7 @@ void FFBXReimportAssistantModule::RegisterMenus()
         TEXT("OpenFBXReimportAssistantHome"),
         FText::FromString(TEXT("FBX Reimport Assistant")),
         FText::FromString(TEXT("FBX Reimport Assistantのホーム画面を開きます。")),
-        FSlateIcon(),
+        FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("ClassIcon.StaticMesh")),
         FUIAction(FExecuteAction::CreateRaw(
             this,
             &FFBXReimportAssistantModule::OpenHomeWindow
@@ -68,7 +73,7 @@ void FFBXReimportAssistantModule::RegisterMenus()
             )),
             FText::FromString(TEXT("FBX Tool")),
             FText::FromString(TEXT("FBX Reimport Assistantのホーム画面を開きます。")),
-            FSlateIcon()
+            FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("ClassIcon.StaticMesh"))
         )
     );
 }
@@ -85,14 +90,14 @@ void FFBXReimportAssistantModule::OpenHomeWindow()
     {
         MainWindow = SNew(SWindow)
             .Title(FText::FromString(TEXT("FBX Reimport Assistant")))
-            .ClientSize(FVector2D(720.0f, 520.0f))
+            .ClientSize(FVector2D(900.0f, 600.0f))
             .SupportsMinimize(true)
-            .SupportsMaximize(true);
-        
+            .SupportsMaximize(true);    
         // ウィンドウクローズ時のイベントを登録
         MainWindow->GetOnWindowClosedEvent().AddRaw(
             this,
             &FFBXReimportAssistantModule::HandleMainWindowClosed);
+            
     }
 
     MainWindow->SetTitle(FText::FromString(TEXT("FBX Reimport Assistant")));

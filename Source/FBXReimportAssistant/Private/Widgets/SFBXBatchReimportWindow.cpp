@@ -1,6 +1,8 @@
 #include "Widgets/SFBXBatchReimportWindow.h"
 
 #include "Services/FBXReimportService.h"
+#include "Styles/FBXReimportAssistantStyle.h"
+#include "Styling/SlateTypes.h"
 #include "ContentBrowserModule.h"
 #include "IContentBrowserSingleton.h"
 #include "Widgets/Input/SButton.h"
@@ -28,6 +30,8 @@ namespace
             [
                 SNew(STextBlock)
                 .Text(Label)
+                .Font(FFBXReimportAssistantStyle::Get().GetFontStyle(TEXT("Font.Caption")))
+                .ColorAndOpacity(FFBXReimportAssistantStyle::Get().GetSlateColor(TEXT("Color.TextSecondary")))
             ]
             + SVerticalBox::Slot()
             .AutoHeight()
@@ -191,11 +195,13 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
         BatchState->Items.Add(Item);
     }
 
+    const ISlateStyle& Style = FFBXReimportAssistantStyle::Get();
     TSharedRef<SVerticalBox> Root = SNew(SVerticalBox);
 
     Root->AddSlot().AutoHeight().Padding(8.0f)
     [
         SNew(SButton)
+        .ButtonStyle(&Style.GetWidgetStyle<FButtonStyle>(TEXT("Button.Secondary")))
         .Text(FText::FromString(TEXT("← ホームに戻る")))
         .IsEnabled_Lambda([State = BatchState]() { return State.IsValid() && !State->bIsRunning; })
         .OnClicked_Lambda([OnBackToHome = Arguments._OnBackToHome]()
@@ -205,10 +211,28 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
         })
     ];
 
-    Root->AddSlot().AutoHeight().Padding(10.0f)
+    Root->AddSlot().AutoHeight().Padding(8.0f, 2.0f, 8.0f, 12.0f)
     [
-        SNew(STextBlock)
-        .Text(FText::FromString(TEXT("FBX Batch Reimport Assistant")))
+        SNew(SBorder)
+        .BorderImage(Style.GetBrush(TEXT("Brush.Hero")))
+        .Padding(FMargin(16.0f, 13.0f))
+        [
+            SNew(SVerticalBox)
+            + SVerticalBox::Slot().AutoHeight()
+            [
+                SNew(STextBlock)
+                .Text(FText::FromString(TEXT("BATCH ASSET WORKFLOW")))
+                .Font(Style.GetFontStyle(TEXT("Font.Caption")))
+                .ColorAndOpacity(FSlateColor(Style.GetColor(TEXT("Color.Success"))))
+            ]
+            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f, 0.0f, 0.0f)
+            [
+                SNew(STextBlock)
+                .Text(FText::FromString(TEXT("複数アセットの一括設定・再インポート")))
+                .Font(Style.GetFontStyle(TEXT("Font.Title")))
+                .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextPrimary")))
+            ]
+        ]
     ];
 
     Root->AddSlot().AutoHeight().Padding(8.0f)
@@ -231,7 +255,10 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
 
     Root->AddSlot().AutoHeight().Padding(8.0f)
     [
-        SNew(STextBlock).Text(FText::FromString(TEXT("一括設定（チェックした項目だけ入力できます）")))
+        SNew(STextBlock)
+        .Text(FText::FromString(TEXT("一括設定（チェックした項目だけ入力できます）")))
+        .Font(Style.GetFontStyle(TEXT("Font.Section")))
+        .ColorAndOpacity(FSlateColor(Style.GetColor(TEXT("Color.AccentHover"))))
     ];
 
     // Uniform Scale
@@ -311,17 +338,28 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
     Root->AddSlot().AutoHeight().Padding(4.0f)[RotationRow];
 
     Root->AddSlot().AutoHeight().Padding(8.0f)
-    [ SNew(STextBlock).Text(FText::FromString(TEXT("変更前 → 変更後のプレビュー"))) ];
+    [ SNew(STextBlock)
+        .Text(FText::FromString(TEXT("変更前 → 変更後のプレビュー")))
+        .Font(Style.GetFontStyle(TEXT("Font.Section")))
+        .ColorAndOpacity(FSlateColor(Style.GetColor(TEXT("Color.AccentHover")))) ];
     Root->AddSlot().AutoHeight().Padding(8.0f)
     [
-        SNew(STextBlock)
-        .Text_Lambda([State = BatchState]() { return FText::FromString(BuildBatchPreview(State)); })
-        .AutoWrapText(true)
+        SNew(SBorder)
+        .BorderImage(Style.GetBrush(TEXT("Brush.Surface")))
+        .Padding(FMargin(12.0f))
+        [
+            SNew(STextBlock)
+            .Text_Lambda([State = BatchState]() { return FText::FromString(BuildBatchPreview(State)); })
+            .Font(Style.GetFontStyle(TEXT("Font.Caption")))
+            .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextSecondary")))
+            .AutoWrapText(true)
+        ]
     ];
 
     Root->AddSlot().AutoHeight().Padding(10.0f)
     [
         SNew(SButton)
+        .ButtonStyle(&Style.GetWidgetStyle<FButtonStyle>(TEXT("Button.Primary")))
         .Text(FText::FromString(TEXT("一括設定を適用")))
         .IsEnabled_Lambda([State = BatchState]() { return State.IsValid() && !State->bIsRunning && State->bOverridesPending; })
         .OnClicked_Lambda([State = BatchState]()
@@ -337,7 +375,10 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
     // Batch operation controls
     Root->AddSlot().AutoHeight().Padding(8.0f)
     [
-        SNew(STextBlock).Text(FText::FromString(TEXT("一括再インポートの進行状況")))
+        SNew(STextBlock)
+        .Text(FText::FromString(TEXT("一括再インポートの進行状況")))
+        .Font(Style.GetFontStyle(TEXT("Font.Section")))
+        .ColorAndOpacity(FSlateColor(Style.GetColor(TEXT("Color.AccentHover"))))
     ];
     Root->AddSlot().AutoHeight().Padding(8.0f)
     [
@@ -362,6 +403,7 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
     Root->AddSlot().AutoHeight().Padding(10.0f)
     [
         SNew(SButton)
+        .ButtonStyle(&Style.GetWidgetStyle<FButtonStyle>(TEXT("Button.Success")))
         .Text(FText::FromString(TEXT("対象のFBXを一括再インポート")))
         .IsEnabled_Lambda([State = BatchState]()
         {
@@ -396,6 +438,7 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
     Root->AddSlot().AutoHeight().Padding(6.0f)
     [
         SNew(SButton)
+        .ButtonStyle(&Style.GetWidgetStyle<FButtonStyle>(TEXT("Button.Secondary")))
         .Text(FText::FromString(TEXT("現在のアセット完了後に中断")))
         .IsEnabled_Lambda([State = BatchState]() { return State.IsValid() && State->bIsRunning && !State->bCancelRequested; })
         .OnClicked_Lambda([State = BatchState]()
@@ -408,6 +451,7 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
     Root->AddSlot().AutoHeight().Padding(6.0f)
     [
         SNew(SButton)
+        .ButtonStyle(&Style.GetWidgetStyle<FButtonStyle>(TEXT("Button.Secondary")))
         .Text(FText::FromString(TEXT("失敗したアセットだけ再試行")))
         .IsEnabled_Lambda([State = BatchState]() { return State.IsValid() && !State->bIsRunning && !State->bOverridesPending && State->FailedCount > 0; })
         .OnClicked_Lambda([State = BatchState]()
@@ -419,24 +463,45 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
 
     Root->AddSlot().AutoHeight().Padding(10.0f)
     [
-        SNew(STextBlock)
-        .Text_Lambda([State = BatchState]() { return FText::FromString(State->StatusText); })
-        .AutoWrapText(true)
+        SNew(SBorder)
+        .BorderImage(Style.GetBrush(TEXT("Brush.Surface")))
+        .Padding(FMargin(12.0f))
+        [
+            SNew(STextBlock)
+            .Text_Lambda([State = BatchState]() { return FText::FromString(State->StatusText); })
+            .Font(Style.GetFontStyle(TEXT("Font.Body")))
+            .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextPrimary")))
+            .AutoWrapText(true)
+        ]
     ];
 
     Root->AddSlot().AutoHeight().Padding(8.0f)
-    [ SNew(STextBlock).Text(FText::FromString(TEXT("処理ログ"))) ];
+    [ SNew(STextBlock)
+        .Text(FText::FromString(TEXT("処理ログ")))
+        .Font(Style.GetFontStyle(TEXT("Font.Section")))
+        .ColorAndOpacity(FSlateColor(Style.GetColor(TEXT("Color.AccentHover")))) ];
     Root->AddSlot().AutoHeight().Padding(8.0f)
     [
-        SNew(STextBlock)
-        .Text_Lambda([State = BatchState]() { return FText::FromString(BuildBatchLog(State)); })
-        .AutoWrapText(true)
+        SNew(SBorder)
+        .BorderImage(Style.GetBrush(TEXT("Brush.Surface")))
+        .Padding(FMargin(12.0f))
+        [
+            SNew(STextBlock)
+            .Text_Lambda([State = BatchState]() { return FText::FromString(BuildBatchLog(State)); })
+            .Font(Style.GetFontStyle(TEXT("Font.Caption")))
+            .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextSecondary")))
+            .AutoWrapText(true)
+        ]
     ];
 
     Root->AddSlot().AutoHeight().Padding(10.0f)
     [
-        SNew(STextBlock)
-        .Text(FText::FromString(TEXT(
+        SNew(SBorder)
+        .BorderImage(Style.GetBrush(TEXT("Brush.Surface")))
+        .Padding(FMargin(12.0f))
+        [
+            SNew(STextBlock)
+            .Text(FText::FromString(TEXT(
             "使い方:\n"
             "1. 一括変更したい設定だけチェックします。未チェックの入力欄はグレーアウトし、編集できません。\n"
             "2. 共通値を入力して変更前後を確認します。\n"
@@ -444,13 +509,20 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
             "4. 中断を押すと、現在処理中のアセットが完了した後に次のアセットへ進まず停止します。\n"
             "5. 失敗したアセットは、失敗理由を確認した後に個別再試行できます。\n\n"
             "チェックを外した項目は各メッシュの元の値を維持します。対象外アセットは処理しません。"
-        )))
-        .AutoWrapText(true)
+            )))
+            .Font(Style.GetFontStyle(TEXT("Font.Caption")))
+            .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextSecondary")))
+            .AutoWrapText(true)
+        ]
     ];
 
     ChildSlot
     [
-        SNew(SScrollBox)
-        + SScrollBox::Slot()[Root]
+        SNew(SBorder)
+        .BorderImage(Style.GetBrush(TEXT("Brush.Background")))
+        [
+            SNew(SScrollBox)
+            + SScrollBox::Slot()[Root]
+        ]
     ];
 }

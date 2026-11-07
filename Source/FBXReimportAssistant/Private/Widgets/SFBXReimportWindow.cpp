@@ -1,6 +1,8 @@
 #include "Widgets/SFBXReimportWindow.h"
 
 #include "Services/FBXReimportService.h"
+#include "Styles/FBXReimportAssistantStyle.h"
+#include "Styling/SlateTypes.h"
 #include "ContentBrowserModule.h"
 #include "IContentBrowserSingleton.h"
 #include "Widgets/Input/SSpinBox.h"
@@ -23,6 +25,8 @@ TSharedRef<SVerticalBox> SFBXReimportWindow::MakeNumericField(
         [
             SNew(STextBlock)
             .Text(Label)
+            .Font(FFBXReimportAssistantStyle::Get().GetFontStyle(TEXT("Font.Caption")))
+            .ColorAndOpacity(FFBXReimportAssistantStyle::Get().GetSlateColor(TEXT("Color.TextSecondary")))
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
@@ -75,11 +79,13 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
         }
     }
 
+    const ISlateStyle& Style = FFBXReimportAssistantStyle::Get();
     TSharedRef<SVerticalBox> Root = SNew(SVerticalBox);
 
     Root->AddSlot().AutoHeight().Padding(8.0f)
     [
         SNew(SButton)
+        .ButtonStyle(&Style.GetWidgetStyle<FButtonStyle>(TEXT("Button.Secondary")))
         .Text(FText::FromString(TEXT("← ホームに戻る")))
         .IsEnabled_Lambda([Draft = Draft]()
         {
@@ -90,6 +96,30 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
             OnBackToHome.ExecuteIfBound();
             return FReply::Handled();
         })
+    ];
+
+    Root->AddSlot().AutoHeight().Padding(8.0f, 2.0f, 8.0f, 12.0f)
+    [
+        SNew(SBorder)
+        .BorderImage(Style.GetBrush(TEXT("Brush.Hero")))
+        .Padding(FMargin(16.0f, 13.0f))
+        [
+            SNew(SVerticalBox)
+            + SVerticalBox::Slot().AutoHeight()
+            [
+                SNew(STextBlock)
+                .Text(FText::FromString(TEXT("SINGLE ASSET WORKFLOW")))
+                .Font(Style.GetFontStyle(TEXT("Font.Caption")))
+                .ColorAndOpacity(FSlateColor(Style.GetColor(TEXT("Color.AccentHover"))))
+            ]
+            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f, 0.0f, 0.0f)
+            [
+                SNew(STextBlock)
+                .Text(FText::FromString(TEXT("単体アセットの設定・再インポート")))
+                .Font(Style.GetFontStyle(TEXT("Font.Title")))
+                .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextPrimary")))
+            ]
+        ]
     ];
 
     if (!Draft.IsValid())
@@ -109,18 +139,25 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
         [
             SNew(STextBlock)
             .Text(FText::FromString(FString::Printf(TEXT("対象アセット: %s"), *Draft->AssetName)))
+            .Font(Style.GetFontStyle(TEXT("Font.Section")))
+            .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextPrimary")))
         ];
 
         Root->AddSlot().AutoHeight().Padding(8.0f)
         [
             SNew(STextBlock)
             .Text(FText::FromString(FString::Printf(TEXT("FBXソース: %s"), *Draft->SourceFilePath)))
+            .Font(Style.GetFontStyle(TEXT("Font.Caption")))
+            .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextSecondary")))
             .AutoWrapText(true)
         ];
 
         Root->AddSlot().AutoHeight().Padding(8.0f)
         [
-            SNew(STextBlock).Text(FText::FromString(TEXT("Translation Offset")))
+            SNew(STextBlock)
+            .Text(FText::FromString(TEXT("Translation Offset")))
+            .Font(Style.GetFontStyle(TEXT("Font.Section")))
+            .ColorAndOpacity(FSlateColor(Style.GetColor(TEXT("Color.AccentHover"))))
         ];
 
         TSharedRef<SHorizontalBox> TranslationRow = SNew(SHorizontalBox);
@@ -158,7 +195,10 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
 
         Root->AddSlot().AutoHeight().Padding(8.0f)
         [
-            SNew(STextBlock).Text(FText::FromString(TEXT("Rotation Offset")))
+            SNew(STextBlock)
+            .Text(FText::FromString(TEXT("Rotation Offset")))
+            .Font(Style.GetFontStyle(TEXT("Font.Section")))
+            .ColorAndOpacity(FSlateColor(Style.GetColor(TEXT("Color.AccentHover"))))
         ];
 
         TSharedRef<SHorizontalBox> RotationRow = SNew(SHorizontalBox);
@@ -196,7 +236,10 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
 
         Root->AddSlot().AutoHeight().Padding(8.0f)
         [
-            SNew(STextBlock).Text(FText::FromString(TEXT("Uniform Scale")))
+            SNew(STextBlock)
+            .Text(FText::FromString(TEXT("Uniform Scale")))
+            .Font(Style.GetFontStyle(TEXT("Font.Section")))
+            .ColorAndOpacity(FSlateColor(Style.GetColor(TEXT("Color.AccentHover"))))
         ];
 
         Root->AddSlot().AutoHeight().Padding(4.0f)
@@ -212,6 +255,10 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
 
         Root->AddSlot().AutoHeight().Padding(8.0f)
         [
+            SNew(SBorder)
+            .BorderImage(Style.GetBrush(TEXT("Brush.Surface")))
+            .Padding(FMargin(12.0f))
+            [
             SNew(STextBlock)
             .Text_Lambda([Draft = Draft]()
             {
@@ -221,12 +268,16 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
                     Draft->Rotation.Roll, Draft->Rotation.Pitch, Draft->Rotation.Yaw,
                     Draft->UniformScale));
             })
+            .Font(Style.GetFontStyle(TEXT("Font.Body")))
+            .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextSecondary")))
             .AutoWrapText(true)
+            ]
         ];
 
         Root->AddSlot().AutoHeight().Padding(8.0f)
         [
             SNew(SButton)
+            .ButtonStyle(&Style.GetWidgetStyle<FButtonStyle>(TEXT("Button.Primary")))
             .Text(FText::FromString(TEXT("設定を適用")))
             .OnClicked_Lambda([Draft = Draft, Status = ApplyStatus]()
             {
@@ -241,12 +292,15 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
         [
             SNew(STextBlock)
             .Text_Lambda([Status = ApplyStatus]() { return FText::FromString(*Status); })
+            .Font(Style.GetFontStyle(TEXT("Font.Caption")))
+            .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextSecondary")))
             .AutoWrapText(true)
         ];
 
         Root->AddSlot().AutoHeight().Padding(8.0f)
         [
             SNew(SButton)
+            .ButtonStyle(&Style.GetWidgetStyle<FButtonStyle>(TEXT("Button.Success")))
             .Text(FText::FromString(TEXT("FBXを再インポート")))
             .IsEnabled_Lambda([Draft = Draft]()
             {
@@ -296,6 +350,8 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
         [
             SNew(STextBlock)
             .Text_Lambda([Status = ReimportStatus]() { return FText::FromString(*Status); })
+            .Font(Style.GetFontStyle(TEXT("Font.Caption")))
+            .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextSecondary")))
             .AutoWrapText(true)
         ];
     }
@@ -304,15 +360,21 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
     [
         SNew(STextBlock)
         .Text(FText::FromString(TEXT("このツールはFBXソースを持つInterchange対応Static Meshを対象とします。")))
+        .Font(Style.GetFontStyle(TEXT("Font.Caption")))
+        .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextMuted")))
         .AutoWrapText(true)
     ];
 
     ChildSlot
     [
-        SNew(SScrollBox)
-        + SScrollBox::Slot()
+        SNew(SBorder)
+        .BorderImage(Style.GetBrush(TEXT("Brush.Background")))
         [
-            Root
+            SNew(SScrollBox)
+            + SScrollBox::Slot()
+            [
+                Root
+            ]
         ]
     ];
 }
