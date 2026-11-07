@@ -38,7 +38,13 @@ public:
     );
 
     // 検証済みアセットを順番に再インポートする。
-    static void StartBatch(const TSharedPtr<FFBXBatchState>& BatchState);
+    static void StartBatch(
+        const TSharedPtr<FFBXBatchState>& BatchState,
+        bool bRetryFailedOnly = false
+    );
+
+    // 現在処理中のアセットが完了した後、次のアセットへ進まないよう要求する。
+    static void RequestCancelBatch(const TSharedPtr<FFBXBatchState>& BatchState);
 
 private:
     static void ProcessNextBatchItem(

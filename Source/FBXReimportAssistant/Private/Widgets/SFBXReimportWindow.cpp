@@ -77,6 +77,21 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
 
     TSharedRef<SVerticalBox> Root = SNew(SVerticalBox);
 
+    Root->AddSlot().AutoHeight().Padding(8.0f)
+    [
+        SNew(SButton)
+        .Text(FText::FromString(TEXT("← ホームに戻る")))
+        .IsEnabled_Lambda([Draft = Draft]()
+        {
+            return !Draft.IsValid() || !Draft->bReimportInProgress;
+        })
+        .OnClicked_Lambda([OnBackToHome = Arguments._OnBackToHome]()
+        {
+            OnBackToHome.ExecuteIfBound();
+            return FReply::Handled();
+        })
+    ];
+
     if (!Draft.IsValid())
     {
         Root->AddSlot()

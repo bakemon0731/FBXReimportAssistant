@@ -226,7 +226,7 @@ bool FFBXReimportService::ApplyDraftSettings(
         return false;
     }
 
-   FScopedTransaction Transaction(
+    FScopedTransaction Transaction(
         FText::FromString(TEXT("FBX Reimport Assistant: Apply Import Settings")),
         true
     );
@@ -492,7 +492,7 @@ bool FFBXReimportService::ApplyBatchOverrides(
     }
 
     // 全対象を1つのトランザクションにまとめる。
-     FScopedTransaction Transaction(
+    FScopedTransaction Transaction(
         FText::FromString(TEXT("FBX Reimport Assistant: Apply Batch Import Settings")),
         true
     );
@@ -671,8 +671,26 @@ bool FFBXReimportService::StartReimportAsync(
     return true;
 }
 
+namespace
+{
+    void AddBatchLog(const TSharedPtr<FFBXBatchState>& BatchState, const FString& Message)
+    {
+        if (!BatchState.IsValid())
+        {
+            return;
+        }
+
+        BatchState->LogMessages.Add(FString::Printf(
+            TEXT("[%s] %s"),
+            *FDateTime::Now().ToString(TEXT("%H:%M:%S")),
+            *Message
+        ));
+    }
+}
+
 void FFBXReimportService::StartBatch(
-    const TSharedPtr<FFBXBatchState>& BatchState
+    const TSharedPtr<FFBXBatchState>& BatchState,
+    bool bRetryFailedOnly
 )
 {
     if (!BatchState.IsValid() || BatchState->bIsRunning)
@@ -683,37 +701,85 @@ void FFBXReimportService::StartBatch(
     if (BatchState->bOverridesPending)
     {
         BatchState->StatusText = TEXT("一括設定に未適用の変更があります。先に「一括設定を適用」を実行してください。");
+        AddBatchLog(BatchState, BatchState->StatusText);
         return;
     }
 
-    int32 EligibleCount = 0;
     BatchState->CurrentIndex = 0;
     BatchState->SuccessCount = 0;
     BatchState->FailedCount = 0;
     BatchState->SkippedCount = 0;
+    BatchState->PendingCount = 0;
+    BatchState->ProcessedCount = 0;
+    BatchState->bCancelRequested = false;
 
     for (const TSharedPtr<FFBXBatchItem>& Item : BatchState->Items)
     {
-        if (Item.IsValid() && Item->bEligible && Item->Draft.IsValid())
+        if (!Item.IsValid())
         {
-            ++EligibleCount;
-            Item->Status = TEXT("待機中");
+            continue;
         }
-        else if (Item.IsValid())
+
+        Item->bPendingForBatch = false;
+
+        if (!Item->bEligible || !Item->Draft.IsValid())
         {
-            ++BatchState->SkippedCount;
+            if (!bRetryFailedOnly)
+            {
+                ++BatchState->SkippedCount;
+            }
+            continue;
         }
+
+        const bool bIsFailedItem = Item->Status.StartsWith(TEXT("失敗"));
+        const bool bShouldRun = !bRetryFailedOnly || bIsFailedItem;
+
+        if (!bShouldRun)
+        {
+            continue;
+        }
+
+        Item->bPendingForBatch = true;
+        Item->Status = TEXT("待機中");
+
+        // 前回の完了処理では二重実行防止のためfalseにしている。
+        // 保存済みPipeline設定を使って再実行できるように戻す。
+        Item->Draft->bSettingsApplied = true;
+        Item->Draft->bReimportInProgress = false;
+
+        ++BatchState->PendingCount;
     }
 
-    if (EligibleCount == 0)
+    if (BatchState->PendingCount == 0)
     {
-        BatchState->StatusText = TEXT("再インポート可能なアセットがありません。");
+        BatchState->StatusText = bRetryFailedOnly
+            ? TEXT("再試行できる失敗アセットがありません。")
+            : TEXT("再インポート可能なアセットがありません。");
+        AddBatchLog(BatchState, BatchState->StatusText);
         return;
     }
 
     BatchState->bIsRunning = true;
-    BatchState->StatusText = TEXT("一括再インポートを開始しました。");
+    BatchState->StatusText = bRetryFailedOnly
+        ? FString::Printf(TEXT("失敗したアセット %d 件の再試行を開始しました。"), BatchState->PendingCount)
+        : FString::Printf(TEXT("一括再インポートを開始しました。対象: %d 件"), BatchState->PendingCount);
+
+    AddBatchLog(BatchState, BatchState->StatusText);
     ProcessNextBatchItem(BatchState);
+}
+
+void FFBXReimportService::RequestCancelBatch(
+    const TSharedPtr<FFBXBatchState>& BatchState
+)
+{
+    if (!BatchState.IsValid() || !BatchState->bIsRunning || BatchState->bCancelRequested)
+    {
+        return;
+    }
+
+    BatchState->bCancelRequested = true;
+    BatchState->StatusText = TEXT("中断要求を受け付けました。現在処理中のアセットが完了した後に停止します。");
+    AddBatchLog(BatchState, BatchState->StatusText);
 }
 
 void FFBXReimportService::ProcessNextBatchItem(
@@ -725,14 +791,43 @@ void FFBXReimportService::ProcessNextBatchItem(
         return;
     }
 
+    // Interchangeの非同期インポート自体を強制停止するのではなく、
+    // 現在の1件が終わったタイミングでキューの続行を止める。
+    if (BatchState->bCancelRequested)
+    {
+        BatchState->bIsRunning = false;
+        BatchState->StatusText = FString::Printf(
+            TEXT("一括再インポートを中断しました。\n処理済み: %d / %d\n成功: %d\n失敗: %d\n未処理: %d"),
+            BatchState->ProcessedCount,
+            BatchState->PendingCount,
+            BatchState->SuccessCount,
+            BatchState->FailedCount,
+            BatchState->PendingCount - BatchState->ProcessedCount
+        );
+        AddBatchLog(BatchState, BatchState->StatusText);
+        return;
+    }
+
     while (BatchState->CurrentIndex < BatchState->Items.Num())
     {
         const int32 ItemIndex = BatchState->CurrentIndex;
         const TSharedPtr<FFBXBatchItem> Item = BatchState->Items[ItemIndex];
 
-        if (!Item.IsValid() || !Item->bEligible || !Item->Draft.IsValid())
+        if (!Item.IsValid() || !Item->bPendingForBatch)
         {
             ++BatchState->CurrentIndex;
+            continue;
+        }
+
+        Item->bPendingForBatch = false;
+
+        if (!Item->bEligible || !Item->Draft.IsValid())
+        {
+            Item->Status = TEXT("スキップ: 有効な編集データがありません。");
+            ++BatchState->SkippedCount;
+            ++BatchState->ProcessedCount;
+            ++BatchState->CurrentIndex;
+            AddBatchLog(BatchState, FString::Printf(TEXT("%s: %s"), *Item->AssetName, *Item->Status));
             continue;
         }
 
@@ -744,17 +839,20 @@ void FFBXReimportService::ProcessNextBatchItem(
         {
             Item->Status = TEXT("スキップ: アセットまたはImport Dataが無効・変更済みです。");
             ++BatchState->SkippedCount;
+            ++BatchState->ProcessedCount;
             ++BatchState->CurrentIndex;
+            AddBatchLog(BatchState, FString::Printf(TEXT("%s: %s"), *Item->AssetName, *Item->Status));
             continue;
         }
 
         Item->Status = TEXT("再インポート中...");
         BatchState->StatusText = FString::Printf(
             TEXT("処理中: %d / %d\n対象: %s"),
-            ItemIndex + 1,
-            BatchState->Items.Num(),
+            BatchState->ProcessedCount + 1,
+            BatchState->PendingCount,
             *Item->AssetName
         );
+        AddBatchLog(BatchState, FString::Printf(TEXT("%s の再インポートを開始します。"), *Item->AssetName));
 
         FString StartError;
         const bool bStarted = StartReimportAsync(
@@ -763,10 +861,7 @@ void FFBXReimportService::ProcessNextBatchItem(
             {
                 if (bSuccess)
                 {
-                    Item->Status = FString::Printf(
-                        TEXT("完了: %d オブジェクト"),
-                        ImportedCount
-                    );
+                    Item->Status = FString::Printf(TEXT("完了: %d オブジェクト"), ImportedCount);
                     ++BatchState->SuccessCount;
                 }
                 else
@@ -777,8 +872,10 @@ void FFBXReimportService::ProcessNextBatchItem(
 
                 Item->Draft->bReimportInProgress = false;
                 Item->Draft->bSettingsApplied = false;
+                ++BatchState->ProcessedCount;
                 BatchState->CurrentIndex = ItemIndex + 1;
 
+                AddBatchLog(BatchState, FString::Printf(TEXT("%s: %s"), *Item->AssetName, *Item->Status));
                 ProcessNextBatchItem(BatchState);
             },
             StartError
@@ -788,7 +885,9 @@ void FFBXReimportService::ProcessNextBatchItem(
         {
             Item->Status = FString::Printf(TEXT("失敗: %s"), *StartError);
             ++BatchState->FailedCount;
+            ++BatchState->ProcessedCount;
             ++BatchState->CurrentIndex;
+            AddBatchLog(BatchState, FString::Printf(TEXT("%s: %s"), *Item->AssetName, *Item->Status));
             continue;
         }
 
@@ -798,10 +897,12 @@ void FFBXReimportService::ProcessNextBatchItem(
 
     BatchState->bIsRunning = false;
     BatchState->StatusText = FString::Printf(
-        TEXT("一括再インポートが終了しました。\n成功: %d\n失敗: %d\nスキップ: %d\n合計: %d"),
+        TEXT("一括再インポートが終了しました。\n成功: %d\n失敗: %d\nスキップ: %d\n処理済み: %d / %d"),
         BatchState->SuccessCount,
         BatchState->FailedCount,
         BatchState->SkippedCount,
-        BatchState->Items.Num()
+        BatchState->ProcessedCount,
+        BatchState->PendingCount
     );
+    AddBatchLog(BatchState, BatchState->StatusText);
 }

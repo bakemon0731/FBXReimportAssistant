@@ -9,6 +9,7 @@ class SFBXReimportWindow : public SCompoundWidget
 {
 public:
     SLATE_BEGIN_ARGS(SFBXReimportWindow) {}
+        SLATE_EVENT(FSimpleDelegate, OnBackToHome)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& Arguments);

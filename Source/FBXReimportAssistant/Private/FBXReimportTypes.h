@@ -57,6 +57,9 @@ struct FFBXBatchItem
     FVector OriginalTranslation = FVector::ZeroVector;
     FRotator OriginalRotation = FRotator::ZeroRotator;
     float OriginalUniformScale = 1.0f;
+
+    // 次回のバッチ実行で処理する対象かどうか。
+    bool bPendingForBatch = false;
 };
 
 // 一括再インポート全体の状態。
@@ -71,7 +74,17 @@ struct FFBXBatchState
     int32 FailedCount = 0;
     int32 SkippedCount = 0;
 
+    // 今回の実行対象数と、そのうち処理が完了した数。
+    int32 PendingCount = 0;
+    int32 ProcessedCount = 0;
+
     bool bIsRunning = false;
+
+    // 中断要求は現在のInterchange処理が終わった後に反映する。
+    bool bCancelRequested = false;
+
+    // UIに表示する実行ログ。
+    TArray<FString> LogMessages;
 
     // UIで値を変更したが、まだ一括適用していない状態。
     bool bOverridesPending = false;

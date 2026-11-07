@@ -8,6 +8,7 @@ class SFBXBatchReimportWindow : public SCompoundWidget
 {
 public:
     SLATE_BEGIN_ARGS(SFBXBatchReimportWindow) {}
+        SLATE_EVENT(FSimpleDelegate, OnBackToHome)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& Arguments);
