@@ -143,7 +143,7 @@ namespace
 
         if (Result.IsEmpty())
         {
-            Result = TEXT("コンテンツブラウザでStatic Meshを選択してください。");
+            Result = TEXT("コンテンツブラウザでStatic MeshまたはSkeletal Meshを選択してください。");
         }
 
         return Result;
@@ -296,7 +296,10 @@ TSharedRef<ITableRow> SFBXBatchReimportWindow::OnGenerateAssetRow(
                 + SVerticalBox::Slot().AutoHeight()
                 [
                     SNew(STextBlock)
-                    .Text(FText::FromString(Item->AssetName))
+                    .Text(FText::FromString(
+                        Item->Draft.IsValid() && !Item->Draft->MeshTypeLabel.IsEmpty()
+                            ? FString::Printf(TEXT("%s  [%s]"), *Item->AssetName, *Item->Draft->MeshTypeLabel)
+                            : Item->AssetName))
                     .Font(Style.GetFontStyle(TEXT("Font.Body")))
                     .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextPrimary")))
                 ]
@@ -380,11 +383,11 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
             continue;
         }
 
-        UStaticMesh* StaticMesh = Cast<UStaticMesh>(Asset);
-        if (!IsValid(StaticMesh))
+        UObject* StaticMesh = Asset;
+        if (!FFBXReimportService::IsSupportedMesh(StaticMesh))
         {
             Item->AssetName = Asset->GetName();
-            Item->Status = TEXT("対象外: Static Meshではありません。");
+            Item->Status = TEXT("対象外: Static MeshまたはSkeletal Meshではありません。");
             Item->bEligible = false;
             BatchState->Items.Add(Item);
             continue;
@@ -857,6 +860,34 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
         .IsEnabled_Lambda([State = BatchState]() { return State.IsValid() && !State->bIsRunning && State->bOverridesPending; })
         .OnClicked_Lambda([State = BatchState]()
         {
+            // 選択中にSkeletal Meshが含まれる場合は、適用前に確認する。
+            int32 SkeletalCount = 0;
+            for (const TSharedPtr<FFBXBatchItem>& Item : State->Items)
+            {
+                if (Item.IsValid() && Item->bEligible && Item->bSelectedForBatch &&
+                    Item->Draft.IsValid() && Item->Draft->bIsSkeletalMesh)
+                {
+                    ++SkeletalCount;
+                }
+            }
+
+            if (SkeletalCount > 0)
+            {
+                const EAppReturnType::Type Response = FMessageDialog::Open(
+                    EAppMsgType::YesNo,
+                    FText::FromString(FString::Printf(
+                        TEXT("選択中にSkeletal Meshが%d件含まれています。\n"
+                             "オフセットを変更すると、そのスケルトンを使用するアニメーションの見え方がずれる場合があります。\n\n"
+                             "一括設定を適用しますか？"),
+                        SkeletalCount)));
+
+                if (Response != EAppReturnType::Yes)
+                {
+                    State->StatusText = TEXT("一括設定の適用をキャンセルしました。");
+                    return FReply::Handled();
+                }
+            }
+
             FString Message;
             FFBXReimportService::ApplyBatchOverrides(State, Message);
             State->StatusText = Message;

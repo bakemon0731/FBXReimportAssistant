@@ -98,16 +98,16 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
 
     if (SelectedAssets.Num() != 1)
     {
-        DiagnosticText = TEXT("コンテンツブラウザでStatic Meshを1つだけ選択してください。");
+        DiagnosticText = TEXT("コンテンツブラウザでStatic MeshまたはSkeletal Meshを1つだけ選択してください。");
     }
     else
     {
         UObject* Asset = SelectedAssets[0].GetAsset();
-        UStaticMesh* StaticMesh = Cast<UStaticMesh>(Asset);
+        UObject* StaticMesh = Asset;
 
-        if (!IsValid(StaticMesh))
+        if (!IsValid(StaticMesh) || !FFBXReimportService::IsSupportedMesh(StaticMesh))
         {
-            DiagnosticText = TEXT("選択したアセットはStatic Meshではありません。");
+            DiagnosticText = TEXT("選択したアセットはStatic MeshまたはSkeletal Meshではありません。");
         }
         else
         {
@@ -174,7 +174,7 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
         Root->AddSlot().AutoHeight().Padding(8.0f)
         [
             SNew(STextBlock)
-            .Text(FText::FromString(FString::Printf(TEXT("対象アセット: %s"), *Draft->AssetName)))
+            .Text(FText::FromString(FString::Printf(TEXT("対象アセット: %s  [%s]"), *Draft->AssetName, *Draft->MeshTypeLabel)))
             .Font(Style.GetFontStyle(TEXT("Font.Section")))
             .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextPrimary")))
         ];
@@ -461,6 +461,23 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
             .Text(FText::FromString(TEXT("設定を適用")))
             .OnClicked_Lambda([Draft = Draft, Status = ApplyStatus]()
             {
+                // Skeletal Meshはスケルトンやアニメーションに影響するため、適用前に確認する。
+                if (Draft.IsValid() && Draft->bIsSkeletalMesh)
+                {
+                    const EAppReturnType::Type Response = FMessageDialog::Open(
+                        EAppMsgType::YesNo,
+                        FText::FromString(TEXT(
+                            "Skeletal Meshのオフセット（Translation / Rotation / Scale）を変更すると、\n"
+                            "このメッシュのスケルトンを使用するアニメーションの見え方がずれる場合があります。\n\n"
+                            "設定を適用しますか？")));
+
+                    if (Response != EAppReturnType::Yes)
+                    {
+                        *Status = TEXT("設定の適用をキャンセルしました。");
+                        return FReply::Handled();
+                    }
+                }
+
                 FString Message;
                 FFBXReimportService::ApplyDraftSettings(Draft, Message);
                 *Status = Message;
@@ -539,7 +556,7 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
     Root->AddSlot().AutoHeight().Padding(10.0f)
     [
         SNew(STextBlock)
-        .Text(FText::FromString(TEXT("このツールはFBXソースを持つInterchange対応Static Meshを対象とします。")))
+        .Text(FText::FromString(TEXT("このツールはFBXソースを持つInterchange対応のStatic Mesh / Skeletal Meshを対象とします。")))
         .Font(Style.GetFontStyle(TEXT("Font.Caption")))
         .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextMuted")))
         .AutoWrapText(true)

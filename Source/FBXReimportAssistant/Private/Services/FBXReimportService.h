@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "FBXReimportTypes.h"
 
-class UStaticMesh;
+class UObject;
 
 // UIに依存しない、FBX検証・設定変更・再インポート処理。
 class FFBXReimportService
@@ -11,9 +11,15 @@ class FFBXReimportService
 public:
     using FOnReimportCompleted = TFunction<void(bool, int32, const FString&)>;
 
-    // Static Meshがこのツールの対応対象か検証し、編集用データを作成する。
+    // このツールが扱えるメッシュ（Static Mesh / Skeletal Mesh）かどうか。
+    static bool IsSupportedMesh(const UObject* Asset);
+
+    // 「Static Mesh」「Skeletal Mesh」などの表示名。非対応の場合は空文字。
+    static FString GetMeshTypeLabel(const UObject* Asset);
+
+    // 対応メッシュか検証し、編集用データを作成する。
     static bool TryCreateDraft(
-        UStaticMesh* StaticMesh,
+        UObject* Mesh,
         TSharedPtr<FFBXImportSettingsDraft>& OutDraft,
         FString& OutError
     );

@@ -259,7 +259,7 @@ void SFBXReimportHomeWindow::Construct(const FArguments& Arguments)
                             FText::FromString(TEXT("01")),
                             FText::FromString(TEXT("SINGLE ASSET")),
                             FText::FromString(TEXT("単体アセットの設定・再インポート")),
-                            FText::FromString(TEXT("Static Meshを1つ選択し、Translation Offset・Rotation Offset・Uniform Scaleを個別に確認・変更します。1つのアセットだけを調整したい場合に使用します。")),
+                            FText::FromString(TEXT("Static MeshまたはSkeletal Meshを1つ選択し、Translation Offset・Rotation Offset・Uniform Scaleを個別に確認・変更します。1つのアセットだけを調整したい場合に使用します。")),
                             FText::FromString(TEXT("単体ツールを開く")),
                             FAppStyle::Get().GetBrush(TEXT("ClassIcon.StaticMesh")),
                             Style.GetColor(TEXT("Color.AccentHover")),
@@ -275,7 +275,7 @@ void SFBXReimportHomeWindow::Construct(const FArguments& Arguments)
                             FText::FromString(TEXT("02")),
                             FText::FromString(TEXT("BATCH ASSETS")),
                             FText::FromString(TEXT("複数アセットの一括設定・再インポート")),
-                            FText::FromString(TEXT("複数のStatic Meshに共通設定を適用して、順番に再インポートします。チェックしていない設定は各アセットの元の値を維持します。")),
+                            FText::FromString(TEXT("複数のStatic Mesh / Skeletal Meshに共通設定を適用して、順番に再インポートします。チェックしていない設定は各アセットの元の値を維持します。")),
                             FText::FromString(TEXT("一括ツールを開く")),
                             FAppStyle::Get().GetBrush(TEXT("Icons.Refresh")),
                             Style.GetColor(TEXT("Color.Success")),
@@ -336,7 +336,7 @@ void SFBXReimportHomeWindow::Construct(const FArguments& Arguments)
                 .Padding(2.0f, 16.0f, 2.0f, 0.0f)
                 [
                     SNew(STextBlock)
-                    .Text(FText::FromString(TEXT("使用前にコンテンツブラウザで対象のStatic Meshを選択してください。単体ツールは1つ、一括ツールは複数のアセットを選択してから開きます。")))
+                    .Text(FText::FromString(TEXT("使用前にコンテンツブラウザで対象のStatic Mesh / Skeletal Meshを選択してください。単体ツールは1つ、一括ツールは複数のアセットを選択してから開きます。")))
                     .Font(Style.GetFontStyle(TEXT("Font.Caption")))
                     .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextMuted")))
                     .AutoWrapText(true)

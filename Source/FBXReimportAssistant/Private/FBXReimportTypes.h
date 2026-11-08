@@ -2,10 +2,11 @@
 
 #include "CoreMinimal.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/SkeletalMesh.h"
 #include "AssetRegistry/AssetData.h"
 #include "InterchangeAssetImportData.h"
 
-// 1つのStatic Meshについて、UIで編集・表示する情報。
+// 1つのメッシュ（Static Mesh / Skeletal Mesh）について、UIで編集・表示する情報。
 struct FFBXImportSettingsDraft
 {
     FString AssetName;
@@ -21,7 +22,10 @@ struct FFBXImportSettingsDraft
     FRotator OriginalRotation = FRotator::ZeroRotator;
     float OriginalUniformScale = 1.0f;
 
-    TWeakObjectPtr<UStaticMesh> TargetMesh;
+    // Static MeshまたはSkeletal Mesh。
+    TWeakObjectPtr<UObject> TargetMesh;
+    bool bIsSkeletalMesh = false;
+    FString MeshTypeLabel;
     TWeakObjectPtr<UInterchangeAssetImportData> ImportData;
 
     bool bSettingsApplied = true;

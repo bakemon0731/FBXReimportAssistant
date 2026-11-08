@@ -1,6 +1,7 @@
 #include "Services/FBXReimportService.h"
 
 #include "Engine/StaticMesh.h"
+#include "Engine/SkeletalMesh.h"
 #include "EditorFramework/AssetImportData.h"
 #include "InterchangeAssetImportData.h"
 #include "InterchangeGenericAssetsPipeline.h"
@@ -11,6 +12,22 @@
 
 namespace
 {
+    // メッシュの種類ごとにAssetImportDataを取得する。非対応ならnullptr。
+    UAssetImportData* GetMeshImportData(UObject* Mesh)
+    {
+        if (UStaticMesh* StaticMesh = Cast<UStaticMesh>(Mesh))
+        {
+            return StaticMesh->AssetImportData.Get();
+        }
+
+        if (USkeletalMesh* SkeletalMesh = Cast<USkeletalMesh>(Mesh))
+        {
+            return SkeletalMesh->GetAssetImportData();
+        }
+
+        return nullptr;
+    }
+
     bool IsSupportedFbxSource(const FString& FilePath, FString& OutError)
     {
         if (!FPaths::GetExtension(FilePath).Equals(TEXT("fbx"), ESearchCase::IgnoreCase))
@@ -74,8 +91,31 @@ namespace
     }
 }
 
+bool FFBXReimportService::IsSupportedMesh(const UObject* Asset)
+{
+    return Asset != nullptr &&
+        (Asset->IsA<UStaticMesh>() || Asset->IsA<USkeletalMesh>());
+}
+
+FString FFBXReimportService::GetMeshTypeLabel(const UObject* Asset)
+{
+    if (Asset == nullptr)
+    {
+        return FString();
+    }
+    if (Asset->IsA<UStaticMesh>())
+    {
+        return TEXT("Static Mesh");
+    }
+    if (Asset->IsA<USkeletalMesh>())
+    {
+        return TEXT("Skeletal Mesh");
+    }
+    return FString();
+}
+
 bool FFBXReimportService::TryCreateDraft(
-    UStaticMesh* StaticMesh,
+    UObject* StaticMesh,
     TSharedPtr<FFBXImportSettingsDraft>& OutDraft,
     FString& OutError
 )
@@ -85,7 +125,13 @@ bool FFBXReimportService::TryCreateDraft(
 
     if (!IsValid(StaticMesh))
     {
-        OutError = TEXT("Static Meshが無効です。");
+        OutError = TEXT("メッシュが無効です。");
+        return false;
+    }
+
+    if (!IsSupportedMesh(StaticMesh))
+    {
+        OutError = TEXT("Static MeshまたはSkeletal Meshではありません。");
         return false;
     }
 
@@ -125,7 +171,7 @@ bool FFBXReimportService::TryCreateDraft(
         return false;
     }
 
-    UAssetImportData* BaseImportData = StaticMesh->AssetImportData.Get();
+    UAssetImportData* BaseImportData = GetMeshImportData(StaticMesh);
     if (!IsValid(BaseImportData))
     {
         OutError = TEXT("AssetImportDataが存在しません。");
@@ -166,6 +212,8 @@ bool FFBXReimportService::TryCreateDraft(
     OutDraft->OriginalRotation = OutDraft->Rotation;
     OutDraft->OriginalUniformScale = OutDraft->UniformScale;
     OutDraft->TargetMesh = StaticMesh;
+    OutDraft->bIsSkeletalMesh = StaticMesh->IsA<USkeletalMesh>();
+    OutDraft->MeshTypeLabel = GetMeshTypeLabel(StaticMesh);
     OutDraft->ImportData = InterchangeImportData;
     OutDraft->bSettingsApplied = true;
     OutDraft->bReimportInProgress = false;
@@ -186,7 +234,7 @@ bool FFBXReimportService::ApplyDraftSettings(
         return false;
     }
 
-    UStaticMesh* TargetMesh = Draft->TargetMesh.Get();
+    UObject* TargetMesh = Draft->TargetMesh.Get();
     UInterchangeAssetImportData* ImportData = Draft->ImportData.Get();
 
     if (!IsValid(TargetMesh) || !IsValid(ImportData))
@@ -195,7 +243,7 @@ bool FFBXReimportService::ApplyDraftSettings(
         return false;
     }
 
-    if (TargetMesh->AssetImportData.Get() != ImportData)
+    if (GetMeshImportData(TargetMesh) != ImportData)
     {
         OutMessage = TEXT("アセットのImport Dataが変更されています。ウィンドウを開き直してください。");
         return false;
@@ -347,7 +395,7 @@ bool FFBXReimportService::ApplyBatchOverrides(
     struct FBatchApplyRecord
     {
         TSharedPtr<FFBXBatchItem> Item;
-        UStaticMesh* Mesh = nullptr;
+        UObject* Mesh = nullptr;
         UInterchangeAssetImportData* ImportData = nullptr;
         UInterchangeGenericAssetsPipeline* Pipeline = nullptr;
         TArray<UObject*> Pipelines;
@@ -357,7 +405,7 @@ bool FFBXReimportService::ApplyBatchOverrides(
     };
 
     TArray<FBatchApplyRecord> Records;
-    TSet<UStaticMesh*> SeenMeshes;
+    TSet<UObject*> SeenMeshes;
 
     for (const TSharedPtr<FFBXBatchItem>& Item : BatchState->Items)
     {
@@ -382,7 +430,7 @@ bool FFBXReimportService::ApplyBatchOverrides(
             return false;
         }
 
-        UStaticMesh* Mesh = Item->Draft->TargetMesh.Get();
+        UObject* Mesh = Item->Draft->TargetMesh.Get();
         UInterchangeAssetImportData* ImportData = Item->Draft->ImportData.Get();
 
         if (!IsValid(Mesh) || !IsValid(ImportData))
@@ -394,7 +442,7 @@ bool FFBXReimportService::ApplyBatchOverrides(
             return false;
         }
 
-        if (Mesh->AssetImportData.Get() != ImportData)
+        if (GetMeshImportData(Mesh) != ImportData)
         {
             OutMessage = FString::Printf(
                 TEXT("%s: Import Dataが変更されています。ウィンドウを開き直してください。"),
@@ -602,7 +650,7 @@ bool FFBXReimportService::StartReimportAsync(
         return false;
     }
 
-    UStaticMesh* TargetMesh = Draft->TargetMesh.Get();
+    UObject* TargetMesh = Draft->TargetMesh.Get();
     UInterchangeAssetImportData* ImportData = Draft->ImportData.Get();
 
     if (!IsValid(TargetMesh) || !IsValid(ImportData))
@@ -611,7 +659,7 @@ bool FFBXReimportService::StartReimportAsync(
         return false;
     }
 
-    if (TargetMesh->AssetImportData.Get() != ImportData)
+    if (GetMeshImportData(TargetMesh) != ImportData)
     {
         OutError = TEXT("Import Dataが変更されています。ウィンドウを開き直してください。");
         return false;
@@ -861,11 +909,11 @@ void FFBXReimportService::ProcessNextBatchItem(
             continue;
         }
 
-        UStaticMesh* TargetMesh = Item->Draft->TargetMesh.Get();
+        UObject* TargetMesh = Item->Draft->TargetMesh.Get();
         UInterchangeAssetImportData* ImportData = Item->Draft->ImportData.Get();
 
         if (!IsValid(TargetMesh) || !IsValid(ImportData) ||
-            TargetMesh->AssetImportData.Get() != ImportData)
+            GetMeshImportData(TargetMesh) != ImportData)
         {
             Item->Status = TEXT("スキップ: アセットまたはImport Dataが無効・変更済みです。");
             ++BatchState->SkippedCount;
