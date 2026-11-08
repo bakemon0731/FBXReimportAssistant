@@ -1195,23 +1195,65 @@ FReply SFBXBatchReimportWindow::OnSavePresetClicked()
     // 現在の一括設定欄で指定されている値を、そのままプリセットへコピー
     Preset.Settings = BatchState->OverrideSettings;
     
-    // 保存サービスを呼び出す
+    // 最初は上書きを許可せずに保存を試す
     FString SavedFilePath;
     FString Message;
     
-    const bool bSuccess = FBXImportPresetService::SavePreset(
-        Preset,
-        false,
-        SavedFilePath,
-        Message);
+    bool bSuccess = 
+        FBXImportPresetService::SavePreset(
+            Preset,
+            false,
+            SavedFilePath,
+            Message
+        );
     
-    // 失敗時の処理
-    if (!bSuccess)
+    // 同名プリセットが存在する場合
+    if (!bSuccess && Message == TEXT("同名のプリセットが既に存在します。"))
     {
-        // 名前が空だった場合や、同名ファイルが存在した場合などをユーザーに伝える
-        PresetStatusTextBlock->SetText(FText::FromString(Message));
-        return FReply::Handled();
+        const EAppReturnType::Type Result =
+            FMessageDialog::Open(
+                EAppMsgType::YesNo,
+                FText::FromString(
+                    FString::Printf(
+                        TEXT("プリセット「%s」は既に存在します。\n上書きしますか？"),
+                        *Preset.Name)));
+        
+        // いいえを選択した場合
+        if (Result != EAppReturnType::Yes)
+        {
+            PresetStatusTextBlock->SetText(
+                FText::FromString(
+                    TEXT("上書きをキャンセルしました。")));
+            return FReply::Handled();
+        }
+        
+        // はいを選択した場合、上書きを許可して保存
+        bSuccess = FBXImportPresetService::SavePreset(
+            Preset,
+            true,
+            SavedFilePath,
+            Message
+        );    
+        
+        // 保存に失敗した場合
+        if (!bSuccess)
+        {
+            PresetStatusTextBlock->SetText(FText::FromString(Message));
+            return FReply::Handled();
+        }
+    
+        // 保存に成功した場合
+        RefreshPresetList();
+    
+        PresetStatusTextBlock->SetText(
+            FText::FromString(
+                FString::Printf(
+                    TEXT("保存しました：%s"),
+                    *FPaths::GetBaseFilename(SavedFilePath))));
+                    return FReply::Handled();
     }
+    
+   
     
     // 保存後に一覧を更新
     RefreshPresetList();
