@@ -43,6 +43,18 @@ struct FFBXBatchOverrideSettings
     }
 };
 
+struct FFBXImportPreset
+{
+    // プリセットの名前
+    FString Name;
+    
+    // データ形式のバージョン
+    int32 Version = 1;
+    
+    // インポート設定
+    FFBXBatchOverrideSettings Settings;
+};
+
 // 一括処理における、1アセット分の結果。
 struct FFBXBatchItem
 {

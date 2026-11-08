@@ -16,47 +16,54 @@
 #include "Widgets/Layout/SBox.h"
 #include "Misc/MessageDialog.h"
 #include "Widgets/Notifications/SProgressBar.h"
+#include "Services/FBXImportPresetService.h"
+#include "Misc/Paths.h"
 
 namespace
 {
-    TSharedRef<SVerticalBox> MakeBatchNumericField(
+    TSharedRef<SVerticalBox> MakeBatchNumericField
+    (
         const FText& Label,
-        float InitialValue,
+        TFunction<float()> GetValue,
         TFunction<void(float)> OnValueChanged,
         TFunction<bool()> IsEnabled
     )
-    {
-        return SNew(SVerticalBox)
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            .Padding(2.0f)
-            [
-                SNew(STextBlock)
-                .Text(Label)
-                .Font(FFBXReimportAssistantStyle::Get().GetFontStyle(TEXT("Font.Caption")))
-                .ColorAndOpacity(FFBXReimportAssistantStyle::Get().GetSlateColor(TEXT("Color.TextSecondary")))
-            ]
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            .Padding(2.0f)
-            [
-                SNew(SSpinBox<float>)
-                .Value(InitialValue)
-                .Delta(0.1f)
-                .EnableWheel(false)
-                .MinDesiredWidth(100.0f)
-                .IsEnabled_Lambda([IsEnabled]()
-                {
-                    return IsEnabled();
-                })
-                .OnValueChanged_Lambda(
-                    [OnValueChanged](float NewValue)
+        {
+            return SNew(SVerticalBox)
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(2.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(Label)
+                    .Font(FFBXReimportAssistantStyle::Get().GetFontStyle(TEXT("Font.Caption")))
+                    .ColorAndOpacity(FFBXReimportAssistantStyle::Get().GetSlateColor(TEXT("Color.TextSecondary")))
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(2.0f)
+                [
+                    SNew(SSpinBox<float>)
+                    .Value_Lambda([GetValue]()
                     {
-                        OnValueChanged(NewValue);
-                    }
-                )
-            ];
-    }
+                        return GetValue();
+                    })
+                    .Delta(0.1f)
+                    .EnableWheel(false)
+                    .MinDesiredWidth(100.0f)
+                    .IsEnabled_Lambda([IsEnabled]()
+                    {
+                        return IsEnabled();
+                    })
+                    .OnValueChanged_Lambda(
+                        [OnValueChanged](float NewValue)
+                        {
+                            OnValueChanged(NewValue);
+                        }
+                    )
+                ];
+        }
+}
 
     void MarkBatchOverridesEdited(const TSharedPtr<FFBXBatchState>& State)
     {
@@ -148,7 +155,7 @@ namespace
             ? FString::Join(State->LogMessages, TEXT("\n"))
             : TEXT("まだログはありません。");
     }
-}
+
 
 void SFBXBatchReimportWindow::RefreshFilteredAssetList()
 {
@@ -421,7 +428,14 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
             return FReply::Handled();
         })
     ];
-
+    
+    Root->AddSlot().AutoHeight()
+    .Padding(0, 0, 0, 10)
+    [
+        BuildPresetPanel()
+    ];
+    
+    
     Root->AddSlot().AutoHeight().Padding(8.0f, 2.0f, 8.0f, 12.0f)
     [
         SNew(SBorder)
@@ -563,9 +577,31 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
     ];
     Root->AddSlot().AutoHeight().Padding(8.0f)
     [
-        MakeBatchNumericField(FText::FromString(TEXT("Uniform Scale")), 1.0f,
-            [State = BatchState](float V) { State->OverrideSettings.UniformScale = V; MarkBatchOverridesEdited(State); },
-            [State = BatchState]() { return State.IsValid() && !State->bIsRunning && State->OverrideSettings.bOverrideUniformScale; })
+        MakeBatchNumericField(
+            FText::FromString(TEXT("Uniform Scale")),
+            // 現在の値を取得
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                    ? State->OverrideSettings.UniformScale
+                    : 1.0f;
+            },
+
+            // 値が変更されたとき
+            [State = BatchState](float V)
+            {
+                State->OverrideSettings.UniformScale = V;
+                MarkBatchOverridesEdited(State);
+            },
+
+            // 入力可能かどうか
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                    && !State->bIsRunning
+                    && State->OverrideSettings.bOverrideUniformScale;
+            }
+        )    
     ];
 
     // Translation
@@ -583,17 +619,84 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
     ];
     TSharedRef<SHorizontalBox> TranslationRow = SNew(SHorizontalBox);
     TranslationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
-    [ MakeBatchNumericField(FText::FromString(TEXT("X")), 0.0f,
-        [State = BatchState](float V) { State->OverrideSettings.Translation.X = V; MarkBatchOverridesEdited(State); },
-        [State = BatchState]() { return State.IsValid() && !State->bIsRunning && State->OverrideSettings.bOverrideTranslation; }) ];
+    [ 
+        MakeBatchNumericField(
+            FText::FromString(TEXT("X")),
+        
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                ? State->OverrideSettings.Translation.X
+                : 0.0f;
+            },
+            
+            [State = BatchState](float V)
+            {
+                State->OverrideSettings.Translation.X = V;
+                MarkBatchOverridesEdited(State);
+            },
+            
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                && !State->bIsRunning
+                && State->OverrideSettings.bOverrideTranslation;
+            }
+        )    
+    ];        
     TranslationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
-    [ MakeBatchNumericField(FText::FromString(TEXT("Y")), 0.0f,
-        [State = BatchState](float V) { State->OverrideSettings.Translation.Y = V; MarkBatchOverridesEdited(State); },
-        [State = BatchState]() { return State.IsValid() && !State->bIsRunning && State->OverrideSettings.bOverrideTranslation; }) ];
+    [ 
+        MakeBatchNumericField(
+            FText::FromString(TEXT("Y")),
+
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                ? State->OverrideSettings.Translation.Y
+                : 0.0f;
+            },
+
+            [State = BatchState](float V)
+            {
+                State->OverrideSettings.Translation.Y = V;
+                MarkBatchOverridesEdited(State);
+            },
+
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                    && !State->bIsRunning
+                    && State->OverrideSettings.bOverrideTranslation;
+            }
+        )
+    ];
+    
     TranslationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
-    [ MakeBatchNumericField(FText::FromString(TEXT("Z")), 0.0f,
-        [State = BatchState](float V) { State->OverrideSettings.Translation.Z = V; MarkBatchOverridesEdited(State); },
-        [State = BatchState]() { return State.IsValid() && !State->bIsRunning && State->OverrideSettings.bOverrideTranslation; }) ];
+    [ 
+        MakeBatchNumericField(
+            FText::FromString(TEXT("Z")),
+                
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                    ? State->OverrideSettings.Translation.Z
+                    : 0.0f;
+            },
+            
+            [State = BatchState](float V)
+            {
+                State->OverrideSettings.Translation.Z = V;
+                MarkBatchOverridesEdited(State);
+            },
+            
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                && !State->bIsRunning
+                && State->OverrideSettings.bOverrideTranslation;
+            }
+        )        
+    ];
     Root->AddSlot().AutoHeight().Padding(4.0f)[TranslationRow];
 
     // Rotation
@@ -611,17 +714,83 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
     ];
     TSharedRef<SHorizontalBox> RotationRow = SNew(SHorizontalBox);
     RotationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
-    [ MakeBatchNumericField(FText::FromString(TEXT("Roll")), 0.0f,
-        [State = BatchState](float V) { State->OverrideSettings.Rotation.Roll = V; MarkBatchOverridesEdited(State); },
-        [State = BatchState]() { return State.IsValid() && !State->bIsRunning && State->OverrideSettings.bOverrideRotation; }) ];
+    [ 
+        MakeBatchNumericField(
+            FText::FromString(TEXT("Roll")),
+            
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                    ? State->OverrideSettings.Rotation.Roll
+                    : 0.0f;
+            },
+            
+            [State = BatchState](float V)
+            {
+                State->OverrideSettings.Rotation.Roll = V;
+                MarkBatchOverridesEdited(State);
+            },
+            
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                    && !State->bIsRunning
+                    && State->OverrideSettings.bOverrideRotation;
+            }
+        )    
+    ];
     RotationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
-    [ MakeBatchNumericField(FText::FromString(TEXT("Pitch")), 0.0f,
-        [State = BatchState](float V) { State->OverrideSettings.Rotation.Pitch = V; MarkBatchOverridesEdited(State); },
-        [State = BatchState]() { return State.IsValid() && !State->bIsRunning && State->OverrideSettings.bOverrideRotation; }) ];
+    [ 
+        MakeBatchNumericField(
+            FText::FromString(TEXT("Pitch")),
+            
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                    ? State->OverrideSettings.Rotation.Pitch
+                    : 0.0f;
+            },
+            
+            [State = BatchState](float V)
+            {
+                State->OverrideSettings.Rotation.Pitch = V;
+                MarkBatchOverridesEdited(State);
+            },
+            
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                    && !State->bIsRunning
+                    && State->OverrideSettings.bOverrideRotation;
+            }
+        )    
+    ];
     RotationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
-    [ MakeBatchNumericField(FText::FromString(TEXT("Yaw")), 0.0f,
-        [State = BatchState](float V) { State->OverrideSettings.Rotation.Yaw = V; MarkBatchOverridesEdited(State); },
-        [State = BatchState]() { return State.IsValid() && !State->bIsRunning && State->OverrideSettings.bOverrideRotation; }) ];
+    [
+        MakeBatchNumericField(
+            FText::FromString(TEXT("Yaw")),
+            
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                    ? State->OverrideSettings.Rotation.Yaw
+                    : 0.0f;
+            },
+            
+            [State = BatchState](float V)
+            {
+                State->OverrideSettings.Rotation.Yaw = V;
+                MarkBatchOverridesEdited(State);
+            },
+            
+            [State = BatchState]()
+            {
+                return State.IsValid()
+                    && !State->bIsRunning
+                    && State->OverrideSettings.bOverrideRotation;
+            }
+        )    
+    ];
     Root->AddSlot().AutoHeight().Padding(4.0f)[RotationRow];
 
     Root->AddSlot().AutoHeight().Padding(8.0f)
@@ -826,4 +995,324 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
             + SScrollBox::Slot()[Root]
         ]
     ];
+    
+    RefreshPresetList();
+}
+
+void SFBXBatchReimportWindow::RefreshPresetList()
+{
+    PresetOptions.Reset();
+    
+    TArray<FString> FilePaths;
+    FString Message;
+    
+    // サービス関数を、UI側から呼び出し
+    const bool bSuccess = FBXImportPresetService::GetPresetFiles(FilePaths, Message);
+    
+    if (!bSuccess)
+    {
+        PresetStatusTextBlock->SetText(FText::FromString(Message));
+        return;
+    }
+    
+    for (const FString& FilePath : FilePaths)
+    {
+        PresetOptions.Add(MakeShared<FString>(FilePath));
+    }
+    
+    if (PresetComboBox.IsValid())
+    {
+        PresetComboBox->RefreshOptions();
+        PresetComboBox->ClearSelection();
+    }
+    
+    SelectedPresetFilePath.Empty();
+    
+    PresetStatusTextBlock->SetText(FText::FromString(Message));
+}
+
+TSharedRef<SWidget> SFBXBatchReimportWindow::BuildPresetPanel()
+{
+    return SNew(SBorder)
+        .Padding(10)
+        [
+            SNew(SVerticalBox)
+
+            // セクション見出し
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0, 0, 0, 8)
+            [
+                SNew(STextBlock)
+                .Text(
+                    FText::FromString(
+                        TEXT("インポート設定プリセット")
+                    )
+                )
+            ]
+
+            // プリセット名入力欄
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0, 0, 0, 8)
+            [
+                SAssignNew(
+                    PresetNameTextBox,
+                    SEditableTextBox
+                )
+                .HintText(
+                    FText::FromString(
+                        TEXT("プリセット名を入力")
+                    )
+                )
+            ]
+
+            // プリセット選択欄
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0, 0, 0, 8)
+            [
+                // Widgetを生成すると同時に、メンバー変数へ参照を保持
+                SAssignNew(
+                    PresetComboBox,
+                    SComboBox<TSharedPtr<FString>>
+                )
+                .OptionsSource(&PresetOptions)
+
+                .OnGenerateWidget_Lambda(
+                    [](TSharedPtr<FString> Item)
+                    {
+                        return SNew(STextBlock)
+                            .Text(
+                                FText::FromString(
+                                    FPaths::GetBaseFilename(*Item)
+                                )
+                            );
+                    }
+                )
+
+                .OnSelectionChanged_Lambda(
+                    [this](
+                        TSharedPtr<FString> NewSelection,
+                        ESelectInfo::Type SelectInfo
+                    )
+                    {
+                        SelectedPresetFilePath =
+                            NewSelection.IsValid()
+                            ? *NewSelection
+                            : FString();
+                    }
+                )
+
+                [
+                    SNew(STextBlock)
+                    .Text_Lambda(
+                        [this]()
+                        {
+                            if (!SelectedPresetFilePath.IsEmpty())
+                            {
+                                return FText::FromString(
+                                    FPaths::GetBaseFilename(
+                                        SelectedPresetFilePath
+                                    )
+                                );
+                            }
+
+                            return FText::FromString(
+                                TEXT("プリセットを選択")
+                            );
+                        }
+                    )
+                ]
+            ]
+
+            // プリセット保存ボタン
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0, 0, 0, 8)
+            [
+                SNew(SButton)
+                .Text(FText::FromString(TEXT("現在の設定を新規保存")))
+                // ボタンがクリックされた際に、OnSavePresetClicked() を実行する
+                .OnClicked(this, &SFBXBatchReimportWindow::OnSavePresetClicked)
+            ]
+
+            // プリセット読み込みボタン
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0, 0, 0, 8)
+            [
+                SNew(SButton)
+                .Text(FText::FromString(TEXT("選択したプリセットを読み込む")))
+                .OnClicked(this, &SFBXBatchReimportWindow::OnLoadPresetClicked)
+            ]
+
+            // プリセット削除ボタン
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0, 0, 0, 8)
+            [
+                SNew(SButton)
+                .Text(FText::FromString(TEXT("選択したプリセットを削除")))
+                .OnClicked(this, &SFBXBatchReimportWindow::OnDeletePresetClicked)
+            ]
+
+            // 状態表示
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            [
+                SAssignNew(
+                    PresetStatusTextBlock,
+                    STextBlock
+                )
+                .Text(
+                    FText::FromString(
+                        TEXT("プリセットを選択してください。")
+                    )
+                )
+            ]
+        ];
+}
+
+FReply SFBXBatchReimportWindow::OnSavePresetClicked()
+{
+    
+    // 入力欄の存在を確認
+    if (!PresetNameTextBox.IsValid())
+    {
+        return FReply::Handled();
+    }
+    
+    // プリセット名を取得
+    const FString PresetName = PresetNameTextBox->GetText().ToString();
+    
+    // 現在の設定を取得
+    FFBXImportPreset Preset;
+    
+    Preset.Name = PresetName;
+    Preset.Version = 1;
+    
+    // 現在の一括設定欄で指定されている値を、そのままプリセットへコピー
+    Preset.Settings = BatchState->OverrideSettings;
+    
+    // 保存サービスを呼び出す
+    FString SavedFilePath;
+    FString Message;
+    
+    const bool bSuccess = FBXImportPresetService::SavePreset(
+        Preset,
+        false,
+        SavedFilePath,
+        Message);
+    
+    // 失敗時の処理
+    if (!bSuccess)
+    {
+        // 名前が空だった場合や、同名ファイルが存在した場合などをユーザーに伝える
+        PresetStatusTextBlock->SetText(FText::FromString(Message));
+        return FReply::Handled();
+    }
+    
+    // 保存後に一覧を更新
+    RefreshPresetList();
+    // 保存が成功すると、コンボボックスの候補一覧が再取得
+    PresetStatusTextBlock->SetText(
+        FText::FromString(
+            FString::Printf(
+                TEXT(
+                    "保存先：%s\n"
+                    "一覧取得：%d件"
+                    ),
+                    *SavedFilePath,
+                    PresetOptions.Num())));
+    
+    return FReply::Handled();
+}
+
+FReply SFBXBatchReimportWindow::OnLoadPresetClicked()
+{
+    if (SelectedPresetFilePath.IsEmpty())
+    {
+        // 選択状態を確認
+        PresetStatusTextBlock->SetText(FText::FromString(TEXT("読み込むプリセットを選択してください。")));
+        // 何も選択していなければ、処理を中止
+        return FReply::Handled();
+    }
+    
+    // 読み込み用のデータを用意
+    // LoadedPreset に、JSONから復元した内容が入る
+    FFBXImportPreset LoadedPreset;
+    FString Message;
+    
+    // LoadPreset()を呼び出す
+    const bool bSuccess = FBXImportPresetService::LoadPreset(SelectedPresetFilePath,LoadedPreset,Message);
+    
+    // 読み込みに失敗した場合
+    if (!bSuccess)
+    {
+        PresetStatusTextBlock->SetText(FText::FromString(Message));
+        return FReply::Handled();
+    }
+    
+    // JSONの読み込みが成功したら、その設定を現在のバッチ状態に反映
+    if (!BatchState.IsValid())
+    {
+        PresetStatusTextBlock->SetText(FText::FromString(TEXT("バッチ状態を取得できません。")));
+        return FReply::Handled();
+    }
+    
+    BatchState->OverrideSettings = LoadedPreset.Settings;
+    
+    MarkBatchOverridesEdited(BatchState);
+    
+    // 読み込み結果を表示
+    PresetStatusTextBlock->SetText(FText::FromString(FString::Printf(TEXT("読み込みました：%s"),*LoadedPreset.Name)));
+    
+    return FReply::Handled();
+    
+}
+
+FReply SFBXBatchReimportWindow::OnDeletePresetClicked()
+{
+    // 選択状態を確認
+    if (SelectedPresetFilePath.IsEmpty())
+    {
+        PresetStatusTextBlock->SetText(
+            FText::FromString(TEXT("削除するプリセットを選択してください。")));
+        
+        return FReply::Handled();
+    }
+    
+    // 削除対象のプリセット名を取得
+    const FString PresetName = FPaths::GetBaseFilename(SelectedPresetFilePath);
+    
+    // ユーザーにYesまたはNoを選択
+    const EAppReturnType::Type Result = 
+        FMessageDialog::Open(
+            EAppMsgType::YesNo,
+            FText::FromString(
+                FString::Printf(
+                    TEXT("プリセット「%s」を削除しますか？"),* PresetName)));
+    
+    // Noの場合は処理を中止
+    if (Result != EAppReturnType::Yes)
+    {
+        return FReply::Handled();
+    }
+    
+    // DeletePreset()を呼び出す
+    FString Message;
+    const bool bSuccess =FBXImportPresetService::DeletePreset(PresetName,Message);
+    
+    // 失敗したらメッセージを表示
+    if (!bSuccess)
+    {
+        PresetStatusTextBlock->SetText(FText::FromString(Message));
+        return FReply::Handled();
+    }
+    
+    // 削除成功後に一覧を更新
+    RefreshPresetList();
+    PresetStatusTextBlock->SetText(FText::FromString(Message));
+    return FReply::Handled();
 }

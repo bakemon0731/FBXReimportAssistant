@@ -96,9 +96,9 @@ void FFBXReimportAssistantStyle::Initialize()
     // アクセント色は用途を識別する場所に限定します。
     // UE標準UIの明るさを邪魔しない、控えめな色です。
     StyleInstance->Set(TEXT("Color.Accent"), FLinearColor(0.24f, 0.43f, 0.58f, 1.0f));
-    StyleInstance->Set(TEXT("Color.AccentHover"), FLinearColor(0.34f, 0.52f, 0.66f, 1.0f));
-    StyleInstance->Set(TEXT("Color.Success"), FLinearColor(0.30f, 0.52f, 0.39f, 1.0f));
-    StyleInstance->Set(TEXT("Color.SuccessHover"), FLinearColor(0.38f, 0.59f, 0.46f, 1.0f));
+    StyleInstance->Set(TEXT("Color.AccentHover"), FLinearColor(0.34f, 1.0f, 1.0f, 1.0f));
+    StyleInstance->Set(TEXT("Color.Success"), FLinearColor(0.30f, 1.0f, 0.39f, 1.0f));
+    StyleInstance->Set(TEXT("Color.SuccessHover"), FLinearColor(0.38f, 1.0f, 0.1f, 1.0f));
     StyleInstance->Set(TEXT("Color.Warning"), FLinearColor(0.62f, 0.48f, 0.27f, 1.0f));
     StyleInstance->Set(TEXT("Color.Danger"), FLinearColor(0.62f, 0.31f, 0.31f, 1.0f));
 

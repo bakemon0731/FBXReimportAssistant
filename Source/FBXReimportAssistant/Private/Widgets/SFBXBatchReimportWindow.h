@@ -5,6 +5,8 @@
 #include "FBXReimportTypes.h"
 #include "Widgets/Views/SListView.h"
 #include "Widgets/Views/STableRow.h"
+#include "Widgets/Input/SComboBox.h"
+#include "Widgets/Input/SEditableTextBox.h"
 
 class FAssetThumbnail;
 class FAssetThumbnailPool;
@@ -38,4 +40,30 @@ private:
         TSharedPtr<FFBXBatchItem> Item,
         const TSharedRef<STableViewBase>& OwnerTable
     );
+    
+    // プリセット名の入力欄
+    TSharedPtr<SEditableTextBox> PresetNameTextBox;
+    
+    // プリセット選択用コンボボックス
+    TSharedPtr<SComboBox<TSharedPtr<FString>>> PresetComboBox;
+    
+    // プリセットファイルの一覧
+    TArray<TSharedPtr<FString>> PresetOptions;
+    
+    // 現在選択されているファイルパス
+    FString SelectedPresetFilePath;
+    
+    // プリセットの状態表示
+    TSharedPtr<STextBlock> PresetStatusTextBlock;
+    
+    // プリセットパネルを生成する
+    TSharedRef<SWidget> BuildPresetPanel();
+    
+    // 保存済みプリセット一覧を更新する
+    void RefreshPresetList();
+    
+    // ボタンがクリックされたときに実行する関数
+    FReply OnSavePresetClicked();
+    FReply OnLoadPresetClicked();
+    FReply OnDeletePresetClicked();
 };
