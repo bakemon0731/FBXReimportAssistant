@@ -27,6 +27,7 @@ public class FBXReimportAssistant : ModuleRules
                 "AssetRegistry",
                 "InterchangeEngine",
                 "Json",
+                "Projects",
                 "InterchangePipelines"
             }
         );

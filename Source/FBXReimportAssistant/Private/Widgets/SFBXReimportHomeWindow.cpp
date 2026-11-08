@@ -13,6 +13,35 @@
 
 namespace
 {
+    // ホーム画面左上のロゴ。プラグインのIcon128.pngがあればそれを表示し、
+    // 見つからない場合は従来の「FBX」文字バッジにフォールバックする。
+    TSharedRef<SWidget> MakeHeroLogo(const ISlateStyle& Style)
+    {
+        const FSlateBrush* NoBrush = FStyleDefaults::GetNoBrush();
+        const FSlateBrush* IconBrush = Style.GetOptionalBrush(TEXT("Brush.PluginIcon"), nullptr, NoBrush);
+
+        if (IconBrush != nullptr && IconBrush != NoBrush)
+        {
+            return SNew(SBox)
+                .WidthOverride(64.0f)
+                .HeightOverride(64.0f)
+                [
+                    SNew(SImage)
+                    .Image(IconBrush)
+                ];
+        }
+
+        return SNew(SBorder)
+            .BorderImage(Style.GetBrush(TEXT("Brush.Accent")))
+            .Padding(FMargin(12.0f, 13.0f))
+            [
+                SNew(STextBlock)
+                .Text(FText::FromString(TEXT("FBX")))
+                .Font(Style.GetFontStyle(TEXT("Font.Title")))
+                .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextPrimary")))
+            ];
+    }
+
     TSharedRef<SWidget> MakeHomeToolCard(
         const ISlateStyle& Style,
         const FText& Number,
@@ -154,15 +183,7 @@ void SFBXReimportHomeWindow::Construct(const FArguments& Arguments)
                         .AutoWidth()
                         .VAlign(VAlign_Center)
                         [
-                            SNew(SBorder)
-                            .BorderImage(Style.GetBrush(TEXT("Brush.Accent")))
-                            .Padding(FMargin(12.0f, 13.0f))
-                            [
-                                SNew(STextBlock)
-                                .Text(FText::FromString(TEXT("FBX")))
-                                .Font(Style.GetFontStyle(TEXT("Font.Title")))
-                                .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextPrimary")))
-                            ]
+                            MakeHeroLogo(Style)
                         ]
                         + SHorizontalBox::Slot()
                         .FillWidth(1.0f)

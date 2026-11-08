@@ -3,8 +3,26 @@
 #include "Styling/SlateStyleRegistry.h"
 #include "Styling/SlateTypes.h"
 #include "Styling/AppStyle.h"
+#include "Brushes/SlateImageBrush.h"
+#include "Interfaces/IPluginManager.h"
+#include "Misc/Paths.h"
 
 TSharedPtr<FSlateStyleSet> FFBXReimportAssistantStyle::StyleInstance;
+bool FFBXReimportAssistantStyle::bHasPluginIcon = false;
+
+FSlateIcon FFBXReimportAssistantStyle::GetToolbarIcon()
+{
+    return bHasPluginIcon && StyleInstance.IsValid()
+        ? FSlateIcon(StyleInstance->GetStyleSetName(), TEXT("Icon.Toolbar"))
+        : FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("ClassIcon.StaticMesh"));
+}
+
+FSlateIcon FFBXReimportAssistantStyle::GetMenuIcon()
+{
+    return bHasPluginIcon && StyleInstance.IsValid()
+        ? FSlateIcon(StyleInstance->GetStyleSetName(), TEXT("Icon.Menu"))
+        : FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("ClassIcon.StaticMesh"));
+}
 
 void FFBXReimportAssistantStyle::Initialize()
 {
@@ -141,6 +159,42 @@ void FFBXReimportAssistantStyle::Initialize()
     StyleInstance->Set(TEXT("Button.Success"), StandardButton);
     StyleInstance->Set(TEXT("Button.Secondary"), StandardButton);
 
+    // ------------------------------------------------------------
+    // プラグインアイコン
+    // <プラグイン>/Resources/Icon128.png をホーム画面のロゴとして使用する。
+    // モジュール名からプラグインの場所を特定し、ファイルが無い場合は登録しない
+    // （表示側で従来の「FBX」文字にフォールバックする）。
+    // ------------------------------------------------------------
+    {
+        TSharedPtr<IPlugin> OwnerPlugin =
+            IPluginManager::Get().GetModuleOwnerPlugin(TEXT("FBXReimportAssistant"));
+
+        if (OwnerPlugin.IsValid())
+        {
+            const FString IconPath = OwnerPlugin->GetBaseDir() / TEXT("Resources") / TEXT("Icon128.png");
+
+            if (FPaths::FileExists(IconPath))
+            {
+                StyleInstance->Set(
+                    TEXT("Brush.PluginIcon"),
+                    new FSlateImageBrush(IconPath, FVector2D(64.0f, 64.0f))
+                );
+
+                // レベルエディタのツールバー（20px）とメニュー（16px）用。
+                StyleInstance->Set(
+                    TEXT("Icon.Toolbar"),
+                    new FSlateImageBrush(IconPath, FVector2D(20.0f, 20.0f))
+                );
+                StyleInstance->Set(
+                    TEXT("Icon.Menu"),
+                    new FSlateImageBrush(IconPath, FVector2D(16.0f, 16.0f))
+                );
+
+                bHasPluginIcon = true;
+            }
+        }
+    }
+
     FSlateStyleRegistry::RegisterSlateStyle(*StyleInstance);
 }
 
@@ -153,6 +207,7 @@ void FFBXReimportAssistantStyle::Shutdown()
 
     FSlateStyleRegistry::UnRegisterSlateStyle(*StyleInstance);
     StyleInstance.Reset();
+    bHasPluginIcon = false;
 }
 
 const ISlateStyle& FFBXReimportAssistantStyle::Get()

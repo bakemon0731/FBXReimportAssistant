@@ -15,6 +15,12 @@ struct FFBXImportSettingsDraft
     FRotator Rotation = FRotator::ZeroRotator;
     float UniformScale = 1.0f;
 
+    // アセットに保存済みの値（プレビューの「変更前」として使用する）。
+    // TryCreateDraftで取得し、設定の適用に成功するたびに最新の値へ更新する。
+    FVector OriginalTranslation = FVector::ZeroVector;
+    FRotator OriginalRotation = FRotator::ZeroRotator;
+    float OriginalUniformScale = 1.0f;
+
     TWeakObjectPtr<UStaticMesh> TargetMesh;
     TWeakObjectPtr<UInterchangeAssetImportData> ImportData;
 

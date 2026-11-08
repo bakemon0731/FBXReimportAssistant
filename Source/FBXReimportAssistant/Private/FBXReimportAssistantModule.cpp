@@ -48,7 +48,7 @@ void FFBXReimportAssistantModule::RegisterMenus()
         TEXT("OpenFBXReimportAssistantHome"),
         FText::FromString(TEXT("FBX Reimport Assistant")),
         FText::FromString(TEXT("FBX Reimport Assistantのホーム画面を開きます。")),
-        FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("ClassIcon.StaticMesh")),
+        FFBXReimportAssistantStyle::GetMenuIcon(),
         FUIAction(FExecuteAction::CreateRaw(
             this,
             &FFBXReimportAssistantModule::OpenHomeWindow
@@ -73,7 +73,7 @@ void FFBXReimportAssistantModule::RegisterMenus()
             )),
             FText::FromString(TEXT("FBX Tool")),
             FText::FromString(TEXT("FBX Reimport Assistantのホーム画面を開きます。")),
-            FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("ClassIcon.StaticMesh"))
+            FFBXReimportAssistantStyle::GetToolbarIcon()
         )
     );
 }

@@ -7,14 +7,47 @@
 #include "IContentBrowserSingleton.h"
 #include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
+#include "Widgets/SFBXPresetPanel.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Misc/MessageDialog.h"
 
+namespace
+{
+    // 変更前 → 変更後のプレビュー文字列。変更がある項目には●を付ける。
+    FString BuildDraftPreview(const FFBXImportSettingsDraft& D)
+    {
+        const bool bTranslationChanged = !D.Translation.Equals(D.OriginalTranslation, KINDA_SMALL_NUMBER);
+        const bool bRotationChanged = !D.Rotation.Equals(D.OriginalRotation, KINDA_SMALL_NUMBER);
+        const bool bScaleChanged = !FMath::IsNearlyEqual(D.UniformScale, D.OriginalUniformScale);
+
+        const FString Header = (bTranslationChanged || bRotationChanged || bScaleChanged)
+            ? TEXT("未適用の変更があります（●が変更項目）\n\n")
+            : TEXT("アセットに保存されている値からの変更はありません。\n\n");
+
+        return Header + FString::Printf(
+            TEXT(
+                "%sTranslation  %.2f / %.2f / %.2f  →  %.2f / %.2f / %.2f\n"
+                "%sRotation     %.2f / %.2f / %.2f  →  %.2f / %.2f / %.2f\n"
+                "%sUniform Scale %.2f  →  %.2f"
+            ),
+            bTranslationChanged ? TEXT("● ") : TEXT("   "),
+            D.OriginalTranslation.X, D.OriginalTranslation.Y, D.OriginalTranslation.Z,
+            D.Translation.X, D.Translation.Y, D.Translation.Z,
+            bRotationChanged ? TEXT("● ") : TEXT("   "),
+            D.OriginalRotation.Roll, D.OriginalRotation.Pitch, D.OriginalRotation.Yaw,
+            D.Rotation.Roll, D.Rotation.Pitch, D.Rotation.Yaw,
+            bScaleChanged ? TEXT("● ") : TEXT("   "),
+            D.OriginalUniformScale, D.UniformScale
+        );
+    }
+}
+
 TSharedRef<SVerticalBox> SFBXReimportWindow::MakeNumericField(
     const FText& Label,
-    float InitialValue,
+    TFunction<float()> GetValue,
     TFunction<void(float)> OnValueChanged
 )
 {
@@ -33,7 +66,10 @@ TSharedRef<SVerticalBox> SFBXReimportWindow::MakeNumericField(
         .Padding(2.0f)
         [
             SNew(SSpinBox<float>)
-            .Value(InitialValue)
+            .Value_Lambda([GetValue]()
+            {
+                return GetValue();
+            })
             .Delta(0.1f)
             .EnableWheel(false)
             .MinDesiredWidth(100.0f)
@@ -152,6 +188,139 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
             .AutoWrapText(true)
         ];
 
+        // ---- プリセット ----
+        PresetSaveScope = MakeShared<FFBXBatchOverrideSettings>();
+        PresetSaveScope->bOverrideTranslation = true;
+        PresetSaveScope->bOverrideRotation = true;
+        PresetSaveScope->bOverrideUniformScale = true;
+
+        // 保存時に含める項目のチェックボックスを作る。
+        auto MakeScopeCheckBox = [Scope = PresetSaveScope](const TCHAR* Label, bool FFBXBatchOverrideSettings::* Member)
+        {
+            return SNew(SCheckBox)
+                .IsChecked_Lambda([Scope, Member]()
+                {
+                    return (*Scope).*Member ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+                })
+                .OnCheckStateChanged_Lambda([Scope, Member](ECheckBoxState NewState)
+                {
+                    (*Scope).*Member = NewState == ECheckBoxState::Checked;
+                })
+                [
+                    SNew(STextBlock).Text(FText::FromString(Label))
+                ];
+        };
+
+        Root->AddSlot().AutoHeight().Padding(8.0f, 0.0f, 8.0f, 8.0f)
+        [
+            SNew(SVerticalBox)
+            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
+            [
+                SNew(STextBlock)
+                .Text(FText::FromString(TEXT("プリセットに保存する項目（読み込み時は保存された項目だけを反映します）")))
+                .Font(Style.GetFontStyle(TEXT("Font.Caption")))
+                .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextSecondary")))
+                .AutoWrapText(true)
+            ]
+            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 12.0f, 0.0f)
+                [
+                    MakeScopeCheckBox(TEXT("Translation"), &FFBXBatchOverrideSettings::bOverrideTranslation)
+                ]
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 12.0f, 0.0f)
+                [
+                    MakeScopeCheckBox(TEXT("Rotation"), &FFBXBatchOverrideSettings::bOverrideRotation)
+                ]
+                + SHorizontalBox::Slot().AutoWidth()
+                [
+                    MakeScopeCheckBox(TEXT("Uniform Scale"), &FFBXBatchOverrideSettings::bOverrideUniformScale)
+                ]
+            ]
+            + SVerticalBox::Slot().AutoHeight()
+            [
+                SNew(SFBXPresetPanel)
+                // 保存: 現在の入力値のうち、チェックした項目をプリセットにする。
+                .OnGetSettingsToSave_Lambda(
+                    [Draft = Draft, Scope = PresetSaveScope](FFBXBatchOverrideSettings& OutSettings, FString& OutError)
+                    {
+                        if (!Draft.IsValid() || !Scope.IsValid())
+                        {
+                            OutError = TEXT("設定データを取得できません。");
+                            return false;
+                        }
+
+                        if (!Scope->HasAnyOverride())
+                        {
+                            OutError = TEXT("保存する項目を1つ以上チェックしてください。");
+                            return false;
+                        }
+
+                        OutSettings = FFBXBatchOverrideSettings();
+                        OutSettings.bOverrideTranslation = Scope->bOverrideTranslation;
+                        OutSettings.bOverrideRotation = Scope->bOverrideRotation;
+                        OutSettings.bOverrideUniformScale = Scope->bOverrideUniformScale;
+                        OutSettings.Translation = Draft->Translation;
+                        OutSettings.Rotation = Draft->Rotation;
+                        OutSettings.UniformScale = Draft->UniformScale;
+                        return true;
+                    }
+                )
+                // 読み込み: プリセットに含まれる項目だけを入力値へ反映する。
+                // アセットへの適用は、これまで通り「設定を適用」で行う。
+                .OnPresetLoaded_Lambda(
+                    [Draft = Draft, Status = ApplyStatus](const FFBXImportPreset& Preset, FString& OutMessage)
+                    {
+                        if (!Draft.IsValid())
+                        {
+                            OutMessage = TEXT("設定データを取得できません。");
+                            return false;
+                        }
+
+                        if (Draft->bReimportInProgress)
+                        {
+                            OutMessage = TEXT("再インポート中はプリセットを読み込めません。");
+                            return false;
+                        }
+
+                        const FFBXBatchOverrideSettings& Loaded = Preset.Settings;
+                        if (!Loaded.HasAnyOverride())
+                        {
+                            OutMessage = TEXT("このプリセットには反映する項目がありません。");
+                            return false;
+                        }
+
+                        TArray<FString> AppliedItems;
+                        if (Loaded.bOverrideTranslation)
+                        {
+                            Draft->Translation = Loaded.Translation;
+                            AppliedItems.Add(TEXT("Translation"));
+                        }
+                        if (Loaded.bOverrideRotation)
+                        {
+                            Draft->Rotation = Loaded.Rotation;
+                            AppliedItems.Add(TEXT("Rotation"));
+                        }
+                        if (Loaded.bOverrideUniformScale)
+                        {
+                            Draft->UniformScale = Loaded.UniformScale;
+                            AppliedItems.Add(TEXT("Uniform Scale"));
+                        }
+
+                        Draft->bSettingsApplied = false;
+                        *Status = TEXT("未適用の変更があります。");
+
+                        OutMessage = FString::Printf(
+                            TEXT("読み込みました：%s\n反映した項目: %s\nプレビューを確認し、「設定を適用」を押してください。"),
+                            *Preset.Name,
+                            *FString::Join(AppliedItems, TEXT(", ")));
+                        return true;
+                    }
+                )
+            ]
+        ];
+
         Root->AddSlot().AutoHeight().Padding(8.0f)
         [
             SNew(STextBlock)
@@ -163,7 +332,8 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
         TSharedRef<SHorizontalBox> TranslationRow = SNew(SHorizontalBox);
         TranslationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
         [
-            MakeNumericField(FText::FromString(TEXT("X")), Draft->Translation.X,
+            MakeNumericField(FText::FromString(TEXT("X")),
+                [Draft = Draft]() { return static_cast<float>(Draft->Translation.X); },
                 [Draft = Draft, Status = ApplyStatus](float Value)
                 {
                     Draft->Translation.X = Value;
@@ -173,7 +343,8 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
         ];
         TranslationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
         [
-            MakeNumericField(FText::FromString(TEXT("Y")), Draft->Translation.Y,
+            MakeNumericField(FText::FromString(TEXT("Y")),
+                [Draft = Draft]() { return static_cast<float>(Draft->Translation.Y); },
                 [Draft = Draft, Status = ApplyStatus](float Value)
                 {
                     Draft->Translation.Y = Value;
@@ -183,7 +354,8 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
         ];
         TranslationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
         [
-            MakeNumericField(FText::FromString(TEXT("Z")), Draft->Translation.Z,
+            MakeNumericField(FText::FromString(TEXT("Z")),
+                [Draft = Draft]() { return static_cast<float>(Draft->Translation.Z); },
                 [Draft = Draft, Status = ApplyStatus](float Value)
                 {
                     Draft->Translation.Z = Value;
@@ -204,7 +376,8 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
         TSharedRef<SHorizontalBox> RotationRow = SNew(SHorizontalBox);
         RotationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
         [
-            MakeNumericField(FText::FromString(TEXT("Roll")), Draft->Rotation.Roll,
+            MakeNumericField(FText::FromString(TEXT("Roll")),
+                [Draft = Draft]() { return static_cast<float>(Draft->Rotation.Roll); },
                 [Draft = Draft, Status = ApplyStatus](float Value)
                 {
                     Draft->Rotation.Roll = Value;
@@ -214,7 +387,8 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
         ];
         RotationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
         [
-            MakeNumericField(FText::FromString(TEXT("Pitch")), Draft->Rotation.Pitch,
+            MakeNumericField(FText::FromString(TEXT("Pitch")),
+                [Draft = Draft]() { return static_cast<float>(Draft->Rotation.Pitch); },
                 [Draft = Draft, Status = ApplyStatus](float Value)
                 {
                     Draft->Rotation.Pitch = Value;
@@ -224,7 +398,8 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
         ];
         RotationRow->AddSlot().FillWidth(1.0f).Padding(4.0f)
         [
-            MakeNumericField(FText::FromString(TEXT("Yaw")), Draft->Rotation.Yaw,
+            MakeNumericField(FText::FromString(TEXT("Yaw")),
+                [Draft = Draft]() { return static_cast<float>(Draft->Rotation.Yaw); },
                 [Draft = Draft, Status = ApplyStatus](float Value)
                 {
                     Draft->Rotation.Yaw = Value;
@@ -244,13 +419,22 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
 
         Root->AddSlot().AutoHeight().Padding(4.0f)
         [
-            MakeNumericField(FText::FromString(TEXT("Scale")), Draft->UniformScale,
+            MakeNumericField(FText::FromString(TEXT("Scale")),
+                [Draft = Draft]() { return static_cast<float>(Draft->UniformScale); },
                 [Draft = Draft, Status = ApplyStatus](float Value)
                 {
                     Draft->UniformScale = Value;
                     Draft->bSettingsApplied = false;
                     *Status = TEXT("未適用の変更があります。");
                 })
+        ];
+
+        Root->AddSlot().AutoHeight().Padding(8.0f)
+        [
+            SNew(STextBlock)
+            .Text(FText::FromString(TEXT("変更前 → 変更後のプレビュー")))
+            .Font(Style.GetFontStyle(TEXT("Font.Section")))
+            .ColorAndOpacity(FSlateColor(Style.GetColor(TEXT("Color.AccentHover"))))
         ];
 
         Root->AddSlot().AutoHeight().Padding(8.0f)
@@ -262,13 +446,9 @@ void SFBXReimportWindow::Construct(const FArguments& Arguments)
             SNew(STextBlock)
             .Text_Lambda([Draft = Draft]()
             {
-                return FText::FromString(FString::Printf(
-                    TEXT("現在の一時データ\nTranslation: %.2f / %.2f / %.2f\nRotation: %.2f / %.2f / %.2f\nUniform Scale: %.2f"),
-                    Draft->Translation.X, Draft->Translation.Y, Draft->Translation.Z,
-                    Draft->Rotation.Roll, Draft->Rotation.Pitch, Draft->Rotation.Yaw,
-                    Draft->UniformScale));
+                return FText::FromString(BuildDraftPreview(*Draft));
             })
-            .Font(Style.GetFontStyle(TEXT("Font.Body")))
+            .Font(Style.GetFontStyle(TEXT("Font.Caption")))
             .ColorAndOpacity(Style.GetSlateColor(TEXT("Color.TextSecondary")))
             .AutoWrapText(true)
             ]

@@ -162,6 +162,9 @@ bool FFBXReimportService::TryCreateDraft(
     OutDraft->Translation = GenericPipeline->ImportOffsetTranslation;
     OutDraft->Rotation = GenericPipeline->ImportOffsetRotation;
     OutDraft->UniformScale = GenericPipeline->ImportOffsetUniformScale;
+    OutDraft->OriginalTranslation = OutDraft->Translation;
+    OutDraft->OriginalRotation = OutDraft->Rotation;
+    OutDraft->OriginalUniformScale = OutDraft->UniformScale;
     OutDraft->TargetMesh = StaticMesh;
     OutDraft->ImportData = InterchangeImportData;
     OutDraft->bSettingsApplied = true;
@@ -259,6 +262,11 @@ bool FFBXReimportService::ApplyDraftSettings(
     TargetMesh->MarkPackageDirty();
 
     Draft->bSettingsApplied = true;
+
+    // 適用後の値がアセット上の最新値になるため、プレビューの「変更前」も更新する。
+    Draft->OriginalTranslation = Draft->Translation;
+    Draft->OriginalRotation = Draft->Rotation;
+    Draft->OriginalUniformScale = Draft->UniformScale;
 
     OutMessage = FString::Printf(
         TEXT("設定を適用しました。\nアセット: %s\n\nTranslation: %.2f / %.2f / %.2f\nRotation: %.2f / %.2f / %.2f\nUniform Scale: %.2f\n\nアセットを保存してください。再インポートはまだ実行していません。"),

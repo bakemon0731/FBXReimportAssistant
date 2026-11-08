@@ -16,7 +16,7 @@
 #include "Widgets/Layout/SBox.h"
 #include "Misc/MessageDialog.h"
 #include "Widgets/Notifications/SProgressBar.h"
-#include "Services/FBXImportPresetService.h"
+#include "Widgets/SFBXPresetPanel.h"
 #include "Misc/Paths.h"
 
 namespace
@@ -432,7 +432,44 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
     Root->AddSlot().AutoHeight()
     .Padding(0, 0, 0, 10)
     [
-        BuildPresetPanel()
+        SNew(SFBXPresetPanel)
+        // 保存: 現在の一括設定（チェック状態と値）をそのままプリセットにする。
+        .OnGetSettingsToSave_Lambda(
+            [State = BatchState](FFBXBatchOverrideSettings& OutSettings, FString& OutError)
+            {
+                if (!State.IsValid())
+                {
+                    OutError = TEXT("設定データを取得できません。");
+                    return false;
+                }
+
+                OutSettings = State->OverrideSettings;
+                return true;
+            }
+        )
+        // 読み込み: プリセットの内容を一括設定へ反映する。
+        .OnPresetLoaded_Lambda(
+            [State = BatchState](const FFBXImportPreset& Preset, FString& OutMessage)
+            {
+                if (!State.IsValid())
+                {
+                    OutMessage = TEXT("バッチ状態を取得できません。");
+                    return false;
+                }
+
+                if (State->bIsRunning)
+                {
+                    OutMessage = TEXT("一括再インポート中はプリセットを読み込めません。");
+                    return false;
+                }
+
+                State->OverrideSettings = Preset.Settings;
+                MarkBatchOverridesEdited(State);
+
+                OutMessage = FString::Printf(TEXT("読み込みました：%s"), *Preset.Name);
+                return true;
+            }
+        )
     ];
     
     
@@ -995,366 +1032,4 @@ void SFBXBatchReimportWindow::Construct(const FArguments& Arguments)
             + SScrollBox::Slot()[Root]
         ]
     ];
-    
-    RefreshPresetList();
-}
-
-void SFBXBatchReimportWindow::RefreshPresetList()
-{
-    PresetOptions.Reset();
-    
-    TArray<FString> FilePaths;
-    FString Message;
-    
-    // サービス関数を、UI側から呼び出し
-    const bool bSuccess = FBXImportPresetService::GetPresetFiles(FilePaths, Message);
-    
-    if (!bSuccess)
-    {
-        PresetStatusTextBlock->SetText(FText::FromString(Message));
-        return;
-    }
-    
-    for (const FString& FilePath : FilePaths)
-    {
-        PresetOptions.Add(MakeShared<FString>(FilePath));
-    }
-    
-    if (PresetComboBox.IsValid())
-    {
-        PresetComboBox->RefreshOptions();
-        PresetComboBox->ClearSelection();
-    }
-    
-    SelectedPresetFilePath.Empty();
-    
-    PresetStatusTextBlock->SetText(FText::FromString(Message));
-}
-
-TSharedRef<SWidget> SFBXBatchReimportWindow::BuildPresetPanel()
-{
-    return SNew(SBorder)
-        .Padding(10)
-        [
-            SNew(SVerticalBox)
-
-            // セクション見出し
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            .Padding(0, 0, 0, 8)
-            [
-                SNew(STextBlock)
-                .Text(
-                    FText::FromString(
-                        TEXT("インポート設定プリセット")
-                    )
-                )
-            ]
-
-            // プリセット名入力欄
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            .Padding(0, 0, 0, 8)
-            [
-                SAssignNew(
-                    PresetNameTextBox,
-                    SEditableTextBox
-                )
-                .HintText(
-                    FText::FromString(
-                        TEXT("プリセット名を入力")
-                    )
-                )
-            ]
-
-            // プリセット選択欄
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            .Padding(0, 0, 0, 8)
-            [
-                // Widgetを生成すると同時に、メンバー変数へ参照を保持
-                SAssignNew(
-                    PresetComboBox,
-                    SComboBox<TSharedPtr<FString>>
-                )
-                .OptionsSource(&PresetOptions)
-
-                .OnGenerateWidget_Lambda(
-                    [](TSharedPtr<FString> Item)
-                    {
-                        return SNew(STextBlock)
-                            .Text(
-                                FText::FromString(
-                                    FPaths::GetBaseFilename(*Item)
-                                )
-                            );
-                    }
-                )
-
-                .OnSelectionChanged_Lambda(
-                    [this](
-                        TSharedPtr<FString> NewSelection,
-                        ESelectInfo::Type SelectInfo
-                    )
-                    {
-                        SelectedPresetFilePath =
-                            NewSelection.IsValid()
-                            ? *NewSelection
-                            : FString();
-                    }
-                )
-
-                [
-                    SNew(STextBlock)
-                    .Text_Lambda(
-                        [this]()
-                        {
-                            if (!SelectedPresetFilePath.IsEmpty())
-                            {
-                                return FText::FromString(
-                                    FPaths::GetBaseFilename(
-                                        SelectedPresetFilePath
-                                    )
-                                );
-                            }
-
-                            return FText::FromString(
-                                TEXT("プリセットを選択")
-                            );
-                        }
-                    )
-                ]
-            ]
-
-            // プリセット保存ボタン
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            .Padding(0, 0, 0, 8)
-            [
-                SNew(SButton)
-                .Text(FText::FromString(TEXT("現在の設定を新規保存")))
-                // ボタンがクリックされた際に、OnSavePresetClicked() を実行する
-                .OnClicked(this, &SFBXBatchReimportWindow::OnSavePresetClicked)
-            ]
-
-            // プリセット読み込みボタン
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            .Padding(0, 0, 0, 8)
-            [
-                SNew(SButton)
-                .Text(FText::FromString(TEXT("選択したプリセットを読み込む")))
-                .OnClicked(this, &SFBXBatchReimportWindow::OnLoadPresetClicked)
-            ]
-
-            // プリセット削除ボタン
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            .Padding(0, 0, 0, 8)
-            [
-                SNew(SButton)
-                .Text(FText::FromString(TEXT("選択したプリセットを削除")))
-                .OnClicked(this, &SFBXBatchReimportWindow::OnDeletePresetClicked)
-            ]
-
-            // 状態表示
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            [
-                SAssignNew(
-                    PresetStatusTextBlock,
-                    STextBlock
-                )
-                .Text(
-                    FText::FromString(
-                        TEXT("プリセットを選択してください。")
-                    )
-                )
-            ]
-        ];
-}
-
-FReply SFBXBatchReimportWindow::OnSavePresetClicked()
-{
-    
-    // 入力欄の存在を確認
-    if (!PresetNameTextBox.IsValid())
-    {
-        return FReply::Handled();
-    }
-    
-    // プリセット名を取得
-    const FString PresetName = PresetNameTextBox->GetText().ToString();
-    
-    // 現在の設定を取得
-    FFBXImportPreset Preset;
-    
-    Preset.Name = PresetName;
-    Preset.Version = 1;
-    
-    // 現在の一括設定欄で指定されている値を、そのままプリセットへコピー
-    Preset.Settings = BatchState->OverrideSettings;
-    
-    // 最初は上書きを許可せずに保存を試す
-    FString SavedFilePath;
-    FString Message;
-    
-    bool bSuccess = 
-        FBXImportPresetService::SavePreset(
-            Preset,
-            false,
-            SavedFilePath,
-            Message
-        );
-    
-    // 同名プリセットが存在する場合
-    if (!bSuccess && Message == TEXT("同名のプリセットが既に存在します。"))
-    {
-        const EAppReturnType::Type Result =
-            FMessageDialog::Open(
-                EAppMsgType::YesNo,
-                FText::FromString(
-                    FString::Printf(
-                        TEXT("プリセット「%s」は既に存在します。\n上書きしますか？"),
-                        *Preset.Name)));
-        
-        // いいえを選択した場合
-        if (Result != EAppReturnType::Yes)
-        {
-            PresetStatusTextBlock->SetText(
-                FText::FromString(
-                    TEXT("上書きをキャンセルしました。")));
-            return FReply::Handled();
-        }
-        
-        // はいを選択した場合、上書きを許可して保存
-        bSuccess = FBXImportPresetService::SavePreset(
-            Preset,
-            true,
-            SavedFilePath,
-            Message
-        );    
-        
-        // 保存に失敗した場合
-        if (!bSuccess)
-        {
-            PresetStatusTextBlock->SetText(FText::FromString(Message));
-            return FReply::Handled();
-        }
-    
-        // 保存に成功した場合
-        RefreshPresetList();
-    
-        PresetStatusTextBlock->SetText(
-            FText::FromString(
-                FString::Printf(
-                    TEXT("保存しました：%s"),
-                    *FPaths::GetBaseFilename(SavedFilePath))));
-                    return FReply::Handled();
-    }
-    
-   
-    
-    // 保存後に一覧を更新
-    RefreshPresetList();
-    // 保存が成功すると、コンボボックスの候補一覧が再取得
-    PresetStatusTextBlock->SetText(
-        FText::FromString(
-            FString::Printf(
-                TEXT(
-                    "保存先：%s\n"
-                    "一覧取得：%d件"
-                    ),
-                    *SavedFilePath,
-                    PresetOptions.Num())));
-    
-    return FReply::Handled();
-}
-
-FReply SFBXBatchReimportWindow::OnLoadPresetClicked()
-{
-    if (SelectedPresetFilePath.IsEmpty())
-    {
-        // 選択状態を確認
-        PresetStatusTextBlock->SetText(FText::FromString(TEXT("読み込むプリセットを選択してください。")));
-        // 何も選択していなければ、処理を中止
-        return FReply::Handled();
-    }
-    
-    // 読み込み用のデータを用意
-    // LoadedPreset に、JSONから復元した内容が入る
-    FFBXImportPreset LoadedPreset;
-    FString Message;
-    
-    // LoadPreset()を呼び出す
-    const bool bSuccess = FBXImportPresetService::LoadPreset(SelectedPresetFilePath,LoadedPreset,Message);
-    
-    // 読み込みに失敗した場合
-    if (!bSuccess)
-    {
-        PresetStatusTextBlock->SetText(FText::FromString(Message));
-        return FReply::Handled();
-    }
-    
-    // JSONの読み込みが成功したら、その設定を現在のバッチ状態に反映
-    if (!BatchState.IsValid())
-    {
-        PresetStatusTextBlock->SetText(FText::FromString(TEXT("バッチ状態を取得できません。")));
-        return FReply::Handled();
-    }
-    
-    BatchState->OverrideSettings = LoadedPreset.Settings;
-    
-    MarkBatchOverridesEdited(BatchState);
-    
-    // 読み込み結果を表示
-    PresetStatusTextBlock->SetText(FText::FromString(FString::Printf(TEXT("読み込みました：%s"),*LoadedPreset.Name)));
-    
-    return FReply::Handled();
-    
-}
-
-FReply SFBXBatchReimportWindow::OnDeletePresetClicked()
-{
-    // 選択状態を確認
-    if (SelectedPresetFilePath.IsEmpty())
-    {
-        PresetStatusTextBlock->SetText(
-            FText::FromString(TEXT("削除するプリセットを選択してください。")));
-        
-        return FReply::Handled();
-    }
-    
-    // 削除対象のプリセット名を取得
-    const FString PresetName = FPaths::GetBaseFilename(SelectedPresetFilePath);
-    
-    // ユーザーにYesまたはNoを選択
-    const EAppReturnType::Type Result = 
-        FMessageDialog::Open(
-            EAppMsgType::YesNo,
-            FText::FromString(
-                FString::Printf(
-                    TEXT("プリセット「%s」を削除しますか？"),* PresetName)));
-    
-    // Noの場合は処理を中止
-    if (Result != EAppReturnType::Yes)
-    {
-        return FReply::Handled();
-    }
-    
-    // DeletePreset()を呼び出す
-    FString Message;
-    const bool bSuccess =FBXImportPresetService::DeletePreset(PresetName,Message);
-    
-    // 失敗したらメッセージを表示
-    if (!bSuccess)
-    {
-        PresetStatusTextBlock->SetText(FText::FromString(Message));
-        return FReply::Handled();
-    }
-    
-    // 削除成功後に一覧を更新
-    RefreshPresetList();
-    PresetStatusTextBlock->SetText(FText::FromString(Message));
-    return FReply::Handled();
 }
